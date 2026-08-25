@@ -112,42 +112,49 @@ They are just addition.
 
 ## 3. Key Symbols
 
-We will use these symbols:
+We will use the following symbols throughout this note:
+
+| Symbol | Meaning |
+|---|---|
+| `B` | Batch size |
+| `T` | Sequence length / number of tokens |
+| `d_model` | Hidden dimension / model dimension |
+| `H` | Number of attention heads |
+| `D` | Head dimension |
+| `d_ff` | Feed-forward intermediate dimension |
+| `V` | Vocabulary size |
+| `L` | Number of GPT blocks / layers |
+| `s` | Number of bytes used per stored value |
+
+The most important relationship is:
+
+`d_model = H × D`
+
+where:
 
 ```text
-B = batch size
-
-T = sequence length / number of tokens
-
-d_model = hidden dimension / model dimension
-
 H = number of attention heads
-
-D = head dimension
-
-d_ff = feed-forward intermediate dimension
-
-V = vocabulary size
-
-L = number of GPT blocks / layers
-```
-
-Important relationship:
-
-```text
-d_model = H × D
+D = dimension of each head
 ```
 
 Example:
 
 ```text
 d_model = 768
-
 H = 12
-
 D = 64
+```
 
-because 12 × 64 = 768
+So:
+
+```text
+768 = 12 × 64
+```
+
+Memory hook:
+
+```text
+The full model dimension is split across attention heads.
 ```
 
 ---
@@ -292,6 +299,10 @@ Inference memory is dominated by weights and KV cache.
 
 Inside one standard multi-head attention module, we have four main matrices:
 
+`W_Q`, `W_K`, `W_V`, and `W_O`
+
+where:
+
 ```text
 W_Q = query projection
 
@@ -302,7 +313,7 @@ W_V = value projection
 W_O = output projection
 ```
 
-In standard multi-head attention, each matrix is often shaped:
+In standard multi-head attention, each matrix usually has shape:
 
 ```text
 d_model × d_model
@@ -311,13 +322,15 @@ d_model × d_model
 So each matrix has:
 
 ```text
-d_model × d_model parameters
+d_model²
 ```
 
-Since there are four matrices:
+parameters.
+
+Since there are four matrices, the total number of attention parameters is:
 
 ```text
-Attention parameters = 4 × d_model × d_model
+N_attn = 4d_model²
 ```
 
 ---
@@ -333,19 +346,21 @@ d_model = 768
 Each attention matrix has:
 
 ```text
-768 × 768 = 589,824 parameters
+768 × 768 = 589,824
 ```
+
+parameters.
 
 There are four matrices:
 
-```text
-W_Q, W_K, W_V, W_O
-```
+`W_Q`, `W_K`, `W_V`, and `W_O`
 
 Total attention parameters:
 
 ```text
-4 × 589,824 = 2,359,296
+N_attn = 4 × 589,824
+
+N_attn = 2,359,296
 ```
 
 So one attention module has about:
@@ -367,13 +382,17 @@ d_model = 4096
 Each attention matrix has:
 
 ```text
-4096 × 4096 = 16,777,216 parameters
+4096 × 4096 = 16,777,216
 ```
+
+parameters.
 
 Total attention parameters:
 
 ```text
-4 × 16,777,216 = 67,108,864
+N_attn = 4 × 16,777,216
+
+N_attn = 67,108,864
 ```
 
 So one attention module has about:
@@ -390,11 +409,7 @@ inside one GPT block.
 
 A standard FFN has two main matrices:
 
-```text
-W_up
-
-W_down
-```
+`W_up` and `W_down`
 
 The FFN expands and compresses:
 
@@ -402,10 +417,10 @@ The FFN expands and compresses:
 d_model → d_ff → d_model
 ```
 
-So:
+So the shapes are:
 
 ```text
-W_up shape = d_model × d_ff
+W_up shape   = d_model × d_ff
 
 W_down shape = d_ff × d_model
 ```
@@ -413,13 +428,13 @@ W_down shape = d_ff × d_model
 Total FFN parameters:
 
 ```text
-d_model × d_ff + d_ff × d_model
+N_ffn = d_model × d_ff + d_ff × d_model
 ```
 
-This becomes:
+Therefore:
 
 ```text
-2 × d_model × d_ff
+N_ffn = 2d_model d_ff
 ```
 
 ---
@@ -449,7 +464,9 @@ W_down = 3072 × 768 = 2,359,296
 Total FFN parameters:
 
 ```text
-2,359,296 + 2,359,296 = 4,718,592
+N_ffn = 2,359,296 + 2,359,296
+
+N_ffn = 4,718,592
 ```
 
 So the FFN has about:
@@ -487,7 +504,7 @@ W_down = 11008 × 4096 = 45,088,768
 Total standard FFN parameters:
 
 ```text
-90,177,536
+N_ffn = 90,177,536
 ```
 
 So a standard FFN has about:
@@ -506,13 +523,7 @@ Many modern LLMs use gated FFNs such as SwiGLU.
 
 A gated FFN often has three main matrices:
 
-```text
-W_gate
-
-W_up
-
-W_down
-```
+`W_gate`, `W_up`, and `W_down`
 
 Simplified flow:
 
@@ -541,7 +552,7 @@ W_down shape = d_ff × d_model
 Total gated FFN parameters:
 
 ```text
-3 × d_model × d_ff
+N_gated_ffn = 3d_model d_ff
 ```
 
 This is larger than a standard FFN.
@@ -558,16 +569,26 @@ d_model = 4096
 d_ff = 11008
 ```
 
-Each projection involving `d_model × d_ff` has:
+Each projection involving:
 
 ```text
-4096 × 11008 = 45,088,768 parameters
+d_model × d_ff
 ```
+
+has:
+
+```text
+4096 × 11008 = 45,088,768
+```
+
+parameters.
 
 For three matrices:
 
 ```text
-3 × 45,088,768 = 135,266,304
+N_gated_ffn = 3 × 45,088,768
+
+N_gated_ffn = 135,266,304
 ```
 
 So a gated FFN can have about:
@@ -586,11 +607,7 @@ This is why the MLP/FFN part often contains a very large fraction of total model
 
 LayerNorm has two learnable vectors:
 
-```text
-gamma
-
-beta
-```
+`gamma` and `beta`
 
 Each has size:
 
@@ -601,8 +618,10 @@ d_model
 So one LayerNorm has:
 
 ```text
-2 × d_model parameters
+2d_model
 ```
+
+parameters.
 
 A GPT block usually has two LayerNorms:
 
@@ -615,7 +634,7 @@ LayerNorm before FFN
 So LayerNorm parameters per block:
 
 ```text
-4 × d_model
+N_ln = 4d_model
 ```
 
 Example:
@@ -627,14 +646,14 @@ d_model = 768
 LayerNorm parameters:
 
 ```text
-4 × 768 = 3072
+N_ln = 4 × 768 = 3072
 ```
 
 This is very small compared to attention and FFN parameters.
 
 ---
 
-## 17. Residual Connections Parameters
+## 17. Residual Connection Parameters
 
 Residual connections have:
 
@@ -665,22 +684,23 @@ Residuals are parameter-free but extremely important.
 For a standard FFN:
 
 ```text
-Attention parameters = 4 × d_model × d_model
+N_attn = 4d_model²
 
-FFN parameters = 2 × d_model × d_ff
+N_ffn = 2d_model d_ff
 
-LayerNorm parameters = 4 × d_model
+N_ln = 4d_model
 ```
 
-Total:
+Therefore:
 
 ```text
-Total block parameters =
-4 × d_model × d_model
-+
-2 × d_model × d_ff
-+
-4 × d_model
+N_block = N_attn + N_ffn + N_ln
+```
+
+Substituting each term:
+
+```text
+N_block = 4d_model² + 2d_model d_ff + 4d_model
 ```
 
 Bias terms are often small compared to matrix weights, so they are usually ignored in rough estimates.
@@ -689,28 +709,44 @@ Bias terms are often small compared to matrix weights, so they are usually ignor
 
 ## 19. Total Parameter Example: d_model = 768, d_ff = 3072
 
+Suppose:
+
+```text
+d_model = 768
+
+d_ff = 3072
+```
+
 Attention:
 
 ```text
-4 × 768 × 768 = 2,359,296
+N_attn = 4 × 768²
+
+N_attn = 2,359,296
 ```
 
 FFN:
 
 ```text
-2 × 768 × 3072 = 4,718,592
+N_ffn = 2 × 768 × 3072
+
+N_ffn = 4,718,592
 ```
 
 LayerNorm:
 
 ```text
-4 × 768 = 3,072
+N_ln = 4 × 768
+
+N_ln = 3,072
 ```
 
 Total:
 
 ```text
-2,359,296 + 4,718,592 + 3,072 = 7,080,960
+N_block = 2,359,296 + 4,718,592 + 3,072
+
+N_block = 7,080,960
 ```
 
 So one GPT block has about:
@@ -728,50 +764,74 @@ for this configuration.
 For a gated FFN:
 
 ```text
-Attention parameters = 4 × d_model × d_model
+N_attn = 4d_model²
 
-Gated FFN parameters = 3 × d_model × d_ff
+N_gated_ffn = 3d_model d_ff
 
-LayerNorm parameters = 4 × d_model
+N_ln = 4d_model
 ```
 
-Total:
+Therefore:
 
 ```text
-Total block parameters =
-4 × d_model × d_model
-+
-3 × d_model × d_ff
-+
-4 × d_model
+N_block = N_attn + N_gated_ffn + N_ln
+```
+
+Substituting each term:
+
+```text
+N_block = 4d_model² + 3d_model d_ff + 4d_model
+```
+
+Important GitHub note:
+
+```text
+Do not write this formula as a heading like "# $$ N_block ... $$".
+Keep it inside a normal text block like this.
 ```
 
 ---
 
 ## 21. Total Parameter Example: d_model = 4096, d_ff = 11008
 
+Suppose:
+
+```text
+d_model = 4096
+
+d_ff = 11008
+```
+
 Attention:
 
 ```text
-4 × 4096 × 4096 = 67,108,864
+N_attn = 4 × 4096²
+
+N_attn = 67,108,864
 ```
 
 Gated FFN:
 
 ```text
-3 × 4096 × 11008 = 135,266,304
+N_gated_ffn = 3 × 4096 × 11008
+
+N_gated_ffn = 135,266,304
 ```
 
 LayerNorm:
 
 ```text
-4 × 4096 = 16,384
+N_ln = 4 × 4096
+
+N_ln = 16,384
 ```
 
 Total:
 
 ```text
-67,108,864 + 135,266,304 + 16,384 = 202,391,552
+N_block = 67,108,864 + 135,266,304 + 16,384
+
+N_block = 202,391,552
 ```
 
 So one GPT block has about:
@@ -789,24 +849,30 @@ for this larger gated-FFN configuration.
 In many GPT-style models:
 
 ```text
-FFN parameters > attention parameters
+N_ffn > N_attn
 ```
 
-Example with standard FFN:
+Example with a standard FFN:
 
 ```text
-Attention ≈ 4 × d_model²
-
-FFN ≈ 8 × d_model²
+N_attn ≈ 4d_model²
 ```
 
-when:
+If:
 
 ```text
-d_ff = 4 × d_model
+d_ff = 4d_model
 ```
 
-So FFN can contain about twice as many parameters as attention.
+then:
+
+```text
+N_ffn = 2d_model(4d_model)
+
+N_ffn = 8d_model²
+```
+
+So the FFN can contain about twice as many parameters as attention.
 
 Memory hook:
 
@@ -865,25 +931,25 @@ V = XW_V
 Each projection costs roughly:
 
 ```text
-B × T × d_model × d_model
+BTd_model²
 ```
 
 For three projections:
 
 ```text
-3 × B × T × d_model × d_model
+3BTd_model²
 ```
 
 Output projection `W_O` adds another:
 
 ```text
-B × T × d_model × d_model
+BTd_model²
 ```
 
 So all attention projections together cost roughly:
 
 ```text
-4 × B × T × d_model × d_model
+C_proj ≈ 4BTd_model²
 ```
 
 This grows linearly with sequence length `T`.
@@ -901,23 +967,23 @@ QK^T
 For each head:
 
 ```text
-Q shape = T × D
+Q_h shape = T × D
 
-K shape = T × D
+K_h shape = T × D
 
-QK^T shape = T × T
+Q_h K_h^T shape = T × T
 ```
 
 Cost per head:
 
 ```text
-T × T × D
+T²D
 ```
 
 For all heads:
 
 ```text
-H × T × T × D
+HT²D
 ```
 
 Since:
@@ -926,16 +992,16 @@ Since:
 H × D = d_model
 ```
 
-this becomes roughly:
+this becomes:
 
 ```text
-T × T × d_model
+T²d_model
 ```
 
 With batch size:
 
 ```text
-B × T × T × d_model
+BT²d_model
 ```
 
 So attention score computation grows as:
@@ -961,31 +1027,27 @@ For each head:
 ```text
 AttentionWeights shape = T × T
 
-V shape = T × D
-```
+V_h shape = T × D
 
-Output:
-
-```text
-T × D
+Output shape = T × D
 ```
 
 Cost per head:
 
 ```text
-T × T × D
+T²D
 ```
 
 For all heads:
 
 ```text
-T × T × d_model
+T²d_model
 ```
 
 With batch size:
 
 ```text
-B × T × T × d_model
+BT²d_model
 ```
 
 So this is also quadratic in sequence length.
@@ -994,30 +1056,38 @@ So this is also quadratic in sequence length.
 
 ## 27. Total Attention Compute
 
-Attention has two major parts:
+Attention has two major parts.
 
 ### Projection compute
 
+Q, K, V, and output projection together cost approximately:
+
 ```text
-4 × B × T × d_model × d_model
+C_proj ≈ 4BTd_model²
 ```
 
 This is linear in `T`.
 
+---
+
 ### Attention matrix compute
 
+Computing attention scores and multiplying by values costs approximately:
+
 ```text
-2 × B × T × T × d_model
+C_attn_matrix ≈ 2BT²d_model
 ```
 
 This is quadratic in `T`.
 
-So total attention compute is roughly:
+---
+
+### Total attention compute
+
+So the approximate attention compute is:
 
 ```text
-4 × B × T × d_model²
-+
-2 × B × T² × d_model
+C_attn ≈ 4BTd_model² + 2BT²d_model
 ```
 
 Memory hook:
@@ -1045,19 +1115,19 @@ d_model → d_ff → d_model
 First matrix multiplication:
 
 ```text
-B × T × d_model × d_ff
+BTd_model d_ff
 ```
 
 Second matrix multiplication:
 
 ```text
-B × T × d_ff × d_model
+BTd_ff d_model
 ```
 
 Total FFN compute:
 
 ```text
-2 × B × T × d_model × d_ff
+C_ffn ≈ 2BTd_model d_ff
 ```
 
 This grows linearly with sequence length `T`.
@@ -1079,7 +1149,7 @@ down projection
 So compute is roughly:
 
 ```text
-3 × B × T × d_model × d_ff
+C_gated_ffn ≈ 3BTd_model d_ff
 ```
 
 This is larger than a standard FFN.
@@ -1091,13 +1161,13 @@ This is larger than a standard FFN.
 Attention has a quadratic part:
 
 ```text
-T²
+C_attn_matrix ∝ T²
 ```
 
 FFN has a linear part:
 
 ```text
-T
+C_ffn ∝ T
 ```
 
 So:
@@ -1205,7 +1275,7 @@ If each parameter uses FP16 or BF16:
 Then parameter memory is:
 
 ```text
-1 billion × 2 bytes = 2 GB
+1,000,000,000 × 2 bytes = 2 GB
 ```
 
 If each parameter uses FP32:
@@ -1217,7 +1287,7 @@ If each parameter uses FP32:
 Then:
 
 ```text
-1 billion × 4 bytes = 4 GB
+1,000,000,000 × 4 bytes = 4 GB
 ```
 
 Memory hook:
@@ -1241,13 +1311,13 @@ Suppose one GPT block has:
 Using FP16 or BF16:
 
 ```text
-202 million × 2 bytes = 404 MB approximately
+202,000,000 × 2 bytes ≈ 404 MB
 ```
 
 Using FP32:
 
 ```text
-202 million × 4 bytes = 808 MB approximately
+202,000,000 × 4 bytes ≈ 808 MB
 ```
 
 This is just one block.
@@ -1478,7 +1548,7 @@ Gradient checkpointing is a training technique used to reduce activation memory.
 
 Normally, training stores many activations from the forward pass.
 
-Gradient checkpointing stores fewer activations and recomputes some of them during backward pass.
+Gradient checkpointing stores fewer activations and recomputes some of them during the backward pass.
 
 Tradeoff:
 
@@ -1551,15 +1621,15 @@ For one GPT block/layer, KV cache stores K and V.
 For standard multi-head attention:
 
 ```text
-K cache shape = B × H × T × D
+K_cache shape = B × H × T × D
 
-V cache shape = B × H × T × D
+V_cache shape = B × H × T × D
 ```
 
-So total KV cache per layer:
+So total KV cache values per layer:
 
 ```text
-2 × B × H × T × D
+2BHTD
 ```
 
 Since:
@@ -1568,10 +1638,10 @@ Since:
 H × D = d_model
 ```
 
-this is:
+this becomes:
 
 ```text
-2 × B × T × d_model
+2BTd_model
 ```
 
 values per layer.
@@ -1589,7 +1659,7 @@ L = number of layers
 KV cache values across the full model:
 
 ```text
-2 × L × B × H × T × D
+2LBHTD
 ```
 
 Since:
@@ -1601,26 +1671,30 @@ H × D = d_model
 this becomes:
 
 ```text
-2 × L × B × T × d_model
+2LBTd_model
 ```
 
-Then multiply by bytes per value.
-
-For FP16/BF16:
+If each stored value uses `s` bytes, then KV cache memory is:
 
 ```text
-2 bytes per value
+M_KV = 2LBTd_model s
 ```
 
-So KV cache memory is:
+For FP16 or BF16:
 
 ```text
-2 × L × B × T × d_model × 2 bytes
+s = 2
 ```
 
-The first `2` is for K and V.
+So:
 
-The final `2 bytes` is for FP16/BF16.
+```text
+M_KV = 4LBTd_model bytes
+```
+
+The first factor of `2` is for K and V.
+
+The value `s` is the number of bytes per stored value.
 
 ---
 
@@ -1629,39 +1703,31 @@ The final `2 bytes` is for FP16/BF16.
 Suppose:
 
 ```text
-L = 32 layers
+L = 32
 
 B = 1
 
-T = 4096 tokens
+T = 4096
 
 d_model = 4096
 
-precision = FP16
+s = 2 bytes for FP16
 ```
 
 KV cache values:
 
 ```text
-2 × 32 × 1 × 4096 × 4096
-```
-
-This equals:
-
-```text
-1,073,741,824 values
-```
-
-Each value uses:
-
-```text
-2 bytes
+2 × 32 × 1 × 4096 × 4096 = 1,073,741,824 values
 ```
 
 Memory:
 
 ```text
-1,073,741,824 × 2 bytes ≈ 2.15 GB
+M_KV = 1,073,741,824 × 2 bytes
+
+M_KV = 2,147,483,648 bytes
+
+M_KV ≈ 2.15 GB
 ```
 
 So the KV cache alone is about:
@@ -1715,9 +1781,17 @@ KV cache memory doubles.
 Unlike attention score compute, KV cache memory grows linearly with context length.
 
 ```text
-KV cache memory grows as T.
+M_KV ∝ T
 
-Attention score compute grows as T².
+C_attn_matrix ∝ T²
+```
+
+So:
+
+```text
+KV cache memory grows linearly with T.
+
+Attention score compute grows quadratically with T.
 ```
 
 ---
@@ -1771,13 +1845,13 @@ This is one reason modern LLMs often use GQA or MQA for efficient inference.
 Many parameter formulas involve:
 
 ```text
-d_model × d_model
+d_model²
 ```
 
 or:
 
 ```text
-d_model × d_ff
+d_model d_ff
 ```
 
 So increasing `d_model` significantly increases parameter count.
@@ -1785,16 +1859,16 @@ So increasing `d_model` significantly increases parameter count.
 Example:
 
 ```text
-d_model doubles
+d_model → 2d_model
 ```
 
 Then:
 
 ```text
-d_model² becomes 4 times larger
+d_model² → (2d_model)² = 4d_model²
 ```
 
-So larger hidden dimension can greatly increase model size and compute.
+So doubling the hidden dimension can make some parameter and compute terms about four times larger.
 
 ---
 
@@ -1866,15 +1940,12 @@ Quantization reduces the number of bytes used per parameter.
 
 Example:
 
-```text
-FP32 = 4 bytes per parameter
-
-FP16/BF16 = 2 bytes per parameter
-
-INT8 = 1 byte per parameter
-
-INT4 = 0.5 bytes per parameter
-```
+| Precision | Bytes per parameter |
+|---|---:|
+| FP32 | 4 bytes |
+| FP16 / BF16 | 2 bytes |
+| INT8 | 1 byte |
+| INT4 | 0.5 bytes |
 
 So quantization reduces memory usage.
 
@@ -2194,7 +2265,7 @@ These topics will become very important in LLM system design interviews.
 
 ---
 
-## 63. Common Interview Calculation
+## 63. Common Interview Calculation: Block Parameters
 
 Question:
 
@@ -2208,30 +2279,39 @@ Answer:
 Attention:
 
 ```text
-4 × d_model × d_model
-= 4 × 768 × 768
-= 2,359,296
+N_attn = 4d_model²
+
+N_attn = 4 × 768²
+
+N_attn = 2,359,296
 ```
 
 FFN:
 
 ```text
-2 × d_model × d_ff
-= 2 × 768 × 3072
-= 4,718,592
+N_ffn = 2d_model d_ff
+
+N_ffn = 2 × 768 × 3072
+
+N_ffn = 4,718,592
 ```
 
-LayerNorm is small:
+LayerNorm:
 
 ```text
-4 × 768 = 3,072
+N_ln = 4d_model
+
+N_ln = 4 × 768
+
+N_ln = 3,072
 ```
 
 Total:
 
 ```text
-2,359,296 + 4,718,592 + 3,072
-= 7,080,960
+N_block = 2,359,296 + 4,718,592 + 3,072
+
+N_block = 7,080,960
 ```
 
 So one block has about:
@@ -2259,31 +2339,31 @@ B = 1
 Formula:
 
 ```text
-KV cache = 2 × L × B × T × d_model × bytes_per_value
+M_KV = 2LBTd_model s
+```
+
+For FP16:
+
+```text
+s = 2 bytes
 ```
 
 Substitute:
 
 ```text
-2 × 32 × 1 × 4096 × 4096 × 2 bytes
+M_KV = 2 × 32 × 1 × 4096 × 4096 × 2 bytes
 ```
 
-Number of values:
+Number of bytes:
 
 ```text
-1,073,741,824
-```
-
-Memory:
-
-```text
-1,073,741,824 × 2 bytes = 2,147,483,648 bytes
+M_KV = 2,147,483,648 bytes
 ```
 
 Approximately:
 
 ```text
-2.15 GB
+M_KV ≈ 2.15 GB
 ```
 
 So KV cache is about:
@@ -2293,6 +2373,13 @@ So KV cache is about:
 ```
 
 for one request.
+
+Important GitHub note:
+
+```text
+Do not write this formula as a heading like "# $$ M_KV ... $$".
+Keep it inside a normal text block like this.
+```
 
 ---
 
@@ -2312,7 +2399,15 @@ Attention score compute grows as:
 T²
 ```
 
-So doubling `T` makes attention compute about:
+So doubling `T` gives:
+
+```text
+T → 2T
+
+T² → (2T)² = 4T²
+```
+
+Therefore attention compute becomes about:
 
 ```text
 4 times larger
@@ -2350,11 +2445,11 @@ Where does the cost of a GPT block come from?
 
 You can answer:
 
-The main parameter cost in a GPT block comes from the attention projection matrices and the feed-forward network. Standard attention has roughly `4 × d_model²` parameters from W_Q, W_K, W_V, and W_O. A standard FFN has roughly `2 × d_model × d_ff` parameters, and gated FFNs have roughly `3 × d_model × d_ff` parameters. The FFN often contains more parameters than the attention module.
+The main parameter cost in a GPT block comes from the attention projection matrices and the feed-forward network. Standard attention has roughly `4d_model²` parameters from `W_Q`, `W_K`, `W_V`, and `W_O`. A standard FFN has roughly `2d_model d_ff` parameters, and gated FFNs have roughly `3d_model d_ff` parameters. The FFN often contains more parameters than the attention module.
 
 The compute cost comes from QKV projections, attention score computation, multiplying attention weights by V, output projection, and FFN matrix multiplications. Attention has a quadratic term in sequence length because the attention matrix is `T × T`, while the FFN grows linearly with sequence length but has large matrix multiplications.
 
-During inference, KV cache is also important. It stores K and V vectors for previous tokens across all layers, with memory roughly proportional to `2 × L × B × T × d_model`. This speeds up decoding but increases memory usage as context length, batch size, and number of layers increase.
+During inference, KV cache is also important. It stores K and V vectors for previous tokens across all layers, with memory roughly proportional to `2LBTd_model s`. This speeds up decoding but increases memory usage as context length, batch size, and number of layers increase.
 
 ---
 
@@ -2401,7 +2496,7 @@ Since `d_ff` is often several times larger than `d_model`, the FFN has many para
 Ignoring biases:
 
 ```text
-4 × d_model × d_model
+N_attn = 4d_model²
 ```
 
 for:
@@ -2417,7 +2512,7 @@ W_Q, W_K, W_V, W_O
 Ignoring biases:
 
 ```text
-2 × d_model × d_ff
+N_ffn = 2d_model d_ff
 ```
 
 ---
@@ -2427,7 +2522,7 @@ Ignoring biases:
 Ignoring biases:
 
 ```text
-3 × d_model × d_ff
+N_gated_ffn = 3d_model d_ff
 ```
 
 ---
@@ -2445,10 +2540,24 @@ It avoids recomputing K and V for old tokens at every generation step.
 For standard multi-head attention:
 
 ```text
-KV cache = 2 × L × B × T × d_model × bytes_per_value
+M_KV = 2LBTd_model s
 ```
 
-where the first `2` is for K and V.
+where:
+
+```text
+2 = K and V
+
+L = number of layers
+
+B = batch size
+
+T = sequence length
+
+d_model = hidden dimension
+
+s = bytes per stored value
+```
 
 ---
 
@@ -2500,31 +2609,36 @@ Decode benefits heavily from KV cache.
 
 ```text
 Attention parameters:
-4 × d_model²
+N_attn = 4d_model²
 
 Standard FFN parameters:
-2 × d_model × d_ff
+N_ffn = 2d_model d_ff
 
 Gated FFN parameters:
-3 × d_model × d_ff
+N_gated_ffn = 3d_model d_ff
 
-LayerNorm parameters are tiny.
+LayerNorm parameters are tiny:
+N_ln = 4d_model per block
 
 Residual connections have zero parameters.
 
 Attention score matrix:
 B × H × T × T
 
-Attention compute grows as T².
+Attention matrix compute:
+C_attn_matrix ∝ T²
 
-FFN compute grows as T.
+FFN compute:
+C_ffn ∝ T
 
-KV cache stores K and V.
+KV cache values:
+2LBTd_model
 
-KV cache grows with layers, batch size, context length, and hidden dimension.
+KV cache memory:
+M_KV = 2LBTd_model × bytes_per_value
 
-KV cache formula:
-2 × L × B × T × d_model × bytes_per_value
+For FP16/BF16:
+M_KV = 4LBTd_model bytes
 
 Training memory:
 weights + activations + gradients + optimizer states
