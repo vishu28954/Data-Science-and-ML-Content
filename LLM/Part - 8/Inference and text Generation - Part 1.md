@@ -146,10 +146,9 @@ $$
 Training tries to find parameters that minimize a loss function:
 
 $$
-\theta^*
-=
-\arg\min_{\theta}\mathcal{L}(\theta)
+\theta^* = \arg\min_{\theta} \mathcal{L}(\theta)
 $$
+
 
 ### How should you read this?
 
@@ -274,10 +273,12 @@ Therefore the text must eventually become numerical tensors.
 Suppose the tokenizer produces:
 
 $$
-[x_1,x_2,x_3,x_4,x_5]
-=
-[464,3139,286,4881,318]
+\begin{matrix}
+[ & x_1, & x_2, & x_3, & x_4, & x_5 & ] \\
+[ & 464, & 3139, & 286, & 4881, & 318 & ]
+\end{matrix}
 $$
+
 
 The token IDs here are only illustrative.
 
@@ -402,12 +403,12 @@ Transformers therefore incorporate position information.
 Conceptually:
 
 $$
-\text{representation used by attention}
-=
-\text{token information}
-+
-\text{position-dependent information}
+\begin{aligned}
+\text{representation used by attention}&= \text{token information} &+\text{position-dependent information}
+\end{aligned}
 $$
+
+
 
 This is a conceptual statement, not a universal literal addition formula.
 
@@ -572,11 +573,9 @@ So we use softmax.
 Softmax is:
 
 $$
-P(i)
-=
-\frac{e^{z_i}}
-{\sum_j e^{z_j}}
+P(i) = \frac{e^{z_i}}{\sum_j e^{z_j}}
 $$
+
 
 ### How should you read this?
 
@@ -618,26 +617,12 @@ $$
 
 Therefore:
 
-$$
-P_1
-=
-\frac{54.60}{64.71}
-\approx0.844
-$$
+$$ P_1 = \frac{54.60}{64.71} \approx 0.844 $$
 
-$$
-P_2
-=
-\frac{7.39}{64.71}
-\approx0.114
-$$
+$$ P_2 = \frac{7.39}{64.71} \approx 0.114 $$
 
-$$
-P_3
-=
-\frac{2.72}{64.71}
-\approx0.042
-$$
+$$ P_3 = \frac{2.72}{64.71} \approx 0.042 $$
+
 
 Check:
 
@@ -683,11 +668,9 @@ $$
 Then compute:
 
 $$
-P(i)
-=
-\frac{e^{z_i-m}}
-{\sum_j e^{z_j-m}}
+P(i) = \frac{e^{z_i-m}}{\sum_j e^{z_j-m}}
 $$
+
 
 Subtracting the same constant from every logit does not change the softmax probabilities.
 
@@ -710,9 +693,7 @@ Softmax preserves the ordering of logits.
 Therefore:
 
 $$
-\arg\max_i z_i
-=
-\arg\max_i P(i)
+\arg\max_i z_i = \arg\max_i P(i)
 $$
 
 Meaning:
@@ -1235,15 +1216,7 @@ special control tokens
 So total prompt length can be written as:
 
 $$
-N_{prompt}
-=
-N_{system}
-+
-N_{history}
-+
-N_{user}
-+
-N_{special}
+N_{prompt} = N_{system} + N_{history} + N_{user} + N_{special}
 $$
 
 ### Why do we need this equation?
@@ -1685,10 +1658,7 @@ $$
 ### Softmax
 
 $$
-P(i)
-=
-\frac{e^{z_i}}
-{\sum_j e^{z_j}}
+P(i) = \frac{e^{z_i}}{\sum_j e^{z_j}}
 $$
 
 ### Context budget
