@@ -46,7 +46,7 @@ During training, the model updates its parameters to minimize a loss function. D
 Training can be written conceptually as:
 
 $$
-\theta^* = \underset{\theta}{\operatorname{argmin}}\;\mathcal{L}(\theta)
+\theta^* = \underset{\theta}{\arg\min}\;\mathcal{L}(\theta)
 $$
 
 where $\theta$ represents model parameters and $\mathcal{L}$ is the training loss.
@@ -244,9 +244,7 @@ This gives the same probabilities but avoids numerical overflow.
 No. Softmax preserves the ordering of logits, so:
 
 $$
-\arg\max_i z_i
-=
-\arg\max_i P(i)
+\arg\max_i z_i = \arg\max_i P(i)
 $$
 
 Therefore, if the generation strategy only needs the highest-scoring token, it can select the maximum logit directly without explicitly computing normalized probabilities.
@@ -452,15 +450,7 @@ No. In a chat system, the full model prompt may include the system message, prev
 A useful conceptual equation is:
 
 $$
-N_{prompt}
-=
-N_{system}
-+
-N_{history}
-+
-N_{user}
-+
-N_{special}
+N_{prompt} = N_{system} + N_{history} + N_{user} + N_{special}
 $$
 
 So a short latest user message can still produce a very large model input if the conversation history is long.
