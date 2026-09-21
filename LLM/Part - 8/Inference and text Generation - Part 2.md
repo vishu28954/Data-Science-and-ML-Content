@@ -131,33 +131,351 @@ That distinction is fundamental to LLM inference performance.
 
 ---
 
-## Question 2 — But if the model is autoregressive, how can all prompt tokens be processed together?
+## Question 2 — Since every prompt token is already known, why can the Transformer compute all prompt positions together instead of running one separate forward pass per token?
 
-This is one of the most important conceptual questions.
+This is one of the most important concepts in prefill.
 
-An autoregressive model requires that token position $i$ must not use information from future positions:
+The confusion usually comes from interpreting **autoregressive** as:
 
-$$ x_{i+1},x_{i+2},\ldots $$
+> “The computer must physically process token 1, then token 2, then token 3.”
 
-But this does **not** mean the computer must physically process prompt positions one after another.
+That is **not** what autoregressive means.
 
-Why?
+Autoregressive means:
 
-Because all prompt token values are already known.
+> **When computing the representation at position $i$, that position is only allowed to use information from itself and earlier positions.**
 
-The model can compute operations for many positions simultaneously while using a **causal mask** to prevent illegal attention to future tokens.
+It describes an **information-dependency rule**, not necessarily the physical order in which the GPU performs the calculations.
 
-So there are two different ideas:
+### Step 1 — Start with a concrete prompt
+
+Suppose the prompt is:
 
 ```text
-Mathematical dependency:
-position i may only use positions ≤ i
-
-Computational execution:
-many positions can still be calculated in parallel
+I love machine learning
 ```
 
-This is the key to understanding prefill.
+For simplicity, imagine tokenization gives:
+
+```text
+x1 = I
+x2 = love
+x3 = machine
+x4 = learning
+```
+
+Before inference begins, the user has already supplied the whole prompt.
+
+So the model already knows:
+
+$
+[x_1,x_2,x_3,x_4]
+$
+
+There is no uncertainty about what $x_2$, $x_3$, or $x_4$ are.
+
+This is fundamentally different from generated output tokens, which do not yet exist.
+
+### Step 2 — What does autoregressive actually restrict?
+
+For the prompt above:
+
+```text
+Position 1: "I"
+can use → I
+
+Position 2: "love"
+can use → I, love
+
+Position 3: "machine"
+can use → I, love, machine
+
+Position 4: "learning"
+can use → I, love, machine, learning
+```
+
+But position 1 must **not** use:
+
+```text
+love, machine, learning
+```
+
+because those are future positions relative to position 1.
+
+Similarly, position 2 must not use:
+
+```text
+machine, learning
+```
+
+So the model must preserve the following dependency pattern:
+
+| Query position ↓ / Key position → | I | love | machine | learning |
+|---|---:|---:|---:|---:|
+| **I** | ✅ | ❌ | ❌ | ❌ |
+| **love** | ✅ | ✅ | ❌ | ❌ |
+| **machine** | ✅ | ✅ | ✅ | ❌ |
+| **learning** | ✅ | ✅ | ✅ | ✅ |
+
+This is the autoregressive rule.
+
+### Step 3 — But why can the GPU still compute all four positions together?
+
+Because the identities of all four prompt tokens are already known.
+
+Their representations can be placed into one tensor:
+
+$
+Xinmathbb{R}^{4	imes d_{model}}
+$
+
+Then the Transformer can compute:
+
+$
+Q=XW_Q
+$
+
+$
+K=XW_K
+$
+
+$
+V=XW_V
+$
+
+for all four prompt positions using large matrix multiplications.
+
+For example:
+
+$
+Qinmathbb{R}^{4	imes d_k}
+$
+
+and:
+
+$
+Kinmathbb{R}^{4	imes d_k}
+$
+
+Therefore:
+
+$
+QK^Tinmathbb{R}^{4	imes4}
+$
+
+So the hardware can calculate the attention scores for all four query positions in the same matrix operation.
+
+Conceptually, before masking, that matrix contains scores for all pairs:
+
+| Query ↓ / Key → | I | love | machine | learning |
+|---|---:|---:|---:|---:|
+| **I** | score | score | score | score |
+| **love** | score | score | score | score |
+| **machine** | score | score | score | score |
+| **learning** | score | score | score | score |
+
+But some of these relationships are illegal in an autoregressive model.
+
+That is where the causal mask enters.
+
+### Step 4 — The causal mask removes illegal future attention
+
+Conceptually, for four positions:
+
+$
+M=
+\begin{bmatrix}
+0 & -\infty & -\infty & -\infty\\
+0 & 0 & -\infty & -\infty\\
+0 & 0 & 0 & -\infty\\
+0 & 0 & 0 & 0
+\end{bmatrix}
+$
+
+The attention logits become:
+
+$
+A=
+\frac{QK^T}{\sqrt{d_k}}+M
+$
+
+After softmax:
+
+$
+\operatorname{softmax}(A)
+$
+
+the masked future locations receive probability zero conceptually because:
+
+$
+e^{-\infty}=0
+$
+
+So the GPU can calculate many prompt positions together, while the mask still guarantees that each position only uses legal past information.
+
+### The crucial distinction
+
+There are two different questions:
+
+```text
+1. What information is position i allowed to use?
+   → controlled by causal attention
+
+2. In what physical order must the hardware execute the calculations?
+   → many known prompt positions can be calculated in parallel
+```
+
+These are not contradictory.
+
+### Step 5 — What happens across Transformer layers?
+
+This becomes even clearer if we think layer by layer.
+
+Suppose layer 4 has already produced:
+
+$
+H^{(4)}
+=
+\begin{bmatrix}
+h_1^{(4)}\\
+h_2^{(4)}\\
+h_3^{(4)}\\
+h_4^{(4)}
+\end{bmatrix}
+$
+
+Layer 5 does **not** need to do:
+
+```text
+position 1
+then position 2
+then position 3
+then position 4
+```
+
+Instead, it can use the whole matrix $H^{(4)}$ and compute:
+
+$
+Q=H^{(4)}W_Q
+$
+
+$
+K=H^{(4)}W_K
+$
+
+$
+V=H^{(4)}W_V
+$
+
+for all four positions together.
+
+The causal mask determines which positions may exchange information.
+
+So the actual high-level execution is:
+
+```text
+All prompt tokens already known
+        ↓
+Create representations for all positions
+        ↓
+Transformer Layer 1
+→ compute positions together
+→ mask future attention
+        ↓
+Transformer Layer 2
+→ compute positions together
+→ mask future attention
+        ↓
+...
+        ↓
+Final Transformer layer
+```
+
+### Why does this work for prefill but not for decode?
+
+Now compare the prompt with generated tokens.
+
+Suppose the prompt is:
+
+```text
+I love machine learning
+```
+
+The next generated token might be:
+
+```text
+because
+```
+
+But before prediction, that token is not known.
+
+The model first has to compute:
+
+$
+P(x_5mid x_1,x_2,x_3,x_4)
+$
+
+Then a decoding rule selects $x_5$.
+
+Only after $x_5$ becomes known can the model compute:
+
+$
+P(x_6mid x_1,x_2,x_3,x_4,x_5)
+$
+
+So:
+
+```text
+PREFILL
+
+x1   x2   x3   x4
+↑    ↑    ↑    ↑
+all token identities already known
+
+→ positions can be processed together
+```
+
+But:
+
+```text
+DECODE
+
+predict x5
+    ↓
+select x5
+    ↓
+now x5 exists
+    ↓
+predict x6
+    ↓
+select x6
+    ↓
+now x6 exists
+```
+
+cannot be parallelized in the same straightforward way because future token identities depend on earlier generated choices.
+
+### Why do we need this concept?
+
+Because this explains the fundamental computational difference between prefill and decode:
+
+> **Prefill has many known token positions, so the model can exploit parallel matrix computation. Decode has unknown future token identities, so generation must progress autoregressively.**
+
+### Memory line
+
+> **Autoregressive controls information flow, not necessarily hardware execution order.**
+
+And the most important comparison is:
+
+```text
+Prefill:
+known token identities + causal mask
+→ parallel computation across prompt positions
+
+Decode:
+future token identities unknown
+→ sequential generation across output positions
+```
 
 ---
 
