@@ -18,9 +18,8 @@ Raw text
 
 Suppose the prompt contains:
 
-$$
-x_1,x_2,ldots,x_n
-$$
+$$x_1, x_2, \ldots, x_n$$
+
 
 Every one of those prompt tokens is already known before generation begins.
 
@@ -76,17 +75,15 @@ The **prefill phase** is the first Transformer forward pass over the known promp
 
 Suppose the prompt is:
 
-$$
-x_1,x_2,ldots,x_n
-$$
+$$x_1, x_2, \ldots, x_n$$
+
 
 All $n$ prompt tokens are already available before generation begins.
 
 After embedding and position handling, the prompt can be represented as:
 
-$$
-Xinmathbb{R}^{n	imes d_{model}}
-$$
+$$X \in \mathbb{R}^{n \times d_{\text{model}}}$$
+
 
 where:
 
@@ -396,7 +393,8 @@ $$
 operatorname{Var}
 left(
 rac{qcdot k}{sqrt{d_k}}
-ight)
+
+ight)
 approx1
 $$
 
@@ -516,7 +514,8 @@ operatorname{Attention}(Q,K,V)
 operatorname{softmax}
 left(
 rac{QK^T}{sqrt{d_k}}+M
-ight)V
+
+ight)V
 $$
 
 Let:
@@ -526,7 +525,8 @@ S=
 operatorname{softmax}
 left(
 rac{QK^T}{sqrt{d_k}}+M
-ight)
+
+ight)
 $$
 
 Then:
@@ -814,13 +814,17 @@ The core mathematical picture is:
 
 $$
 X
-ightarrow
+
+ightarrow
 Q,K,V
-ightarrow
+
+ightarrow
 rac{QK^T}{sqrt{d_k}}+M
-ightarrow
+
+ightarrow
 operatorname{softmax}
-ightarrow
+
+ightarrow
 	ext{contextual prompt representations}
 $$
 
@@ -1030,7 +1034,8 @@ alpha_t
 operatorname{softmax}
 left(
 rac{q_tK_{1:t}^T}{sqrt{d_k}}
-ight)
+
+ight)
 $$
 
 where:
@@ -1456,7 +1461,8 @@ So later decode steps may work with a longer history than earlier ones.
 If prompt tokens plus generated tokens approach the model/runtime context limit:
 
 $$
-P+Gightarrow C
+P+G
+ightarrow C
 $$
 
 generation may need to stop, truncate context, or use a serving-specific strategy.
@@ -1635,7 +1641,8 @@ operatorname{Attention}(Q,K,V)
 operatorname{softmax}
 left(
 rac{QK^T}{sqrt{d_k}}+M
-ight)V
+
+ight)V
 $$
 
 ### Prefill score shape
