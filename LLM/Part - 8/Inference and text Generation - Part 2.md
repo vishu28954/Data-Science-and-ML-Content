@@ -137,9 +137,7 @@ This is one of the most important conceptual questions.
 
 An autoregressive model requires that token position $i$ must not use information from future positions:
 
-$$
-x_{i+1},x_{i+2},ldots
-$$
+$$ x_{i+1},x_{i+2},\ldots $$
 
 But this does **not** mean the computer must physically process prompt positions one after another.
 
@@ -167,9 +165,7 @@ This is the key to understanding prefill.
 
 Let the prompt representation be:
 
-$$
-Xinmathbb{R}^{n	imes d_{model}}
-$$
+$$X \in \mathbb{R}^{n \times d_{\text{text{model}}}}$$
 
 The attention layer forms Queries, Keys, and Values.
 
@@ -189,29 +185,20 @@ $$
 
 Suppose:
 
-$$
-W_Q,W_Kinmathbb{R}^{d_{model}	imes d_k}
-$$
+$$W_Q, W_K \in \mathbb{R}^{d_{\text{model}} \times d_k}$$
 
 and:
 
-$$
-W_Vinmathbb{R}^{d_{model}	imes d_v}
-$$
+$$W_V \in \mathbb{R}^{d_{\text{model}} \times d_v}$$
 
 Then:
 
-$$
-Qinmathbb{R}^{n	imes d_k}
-$$
+$$Q \in \mathbb{R}^{n \times d_k}$$
 
-$$
-Kinmathbb{R}^{n	imes d_k}
-$$
+$$K \in \mathbb{R}^{n \times d_k}$$
 
-$$
-Vinmathbb{R}^{n	imes d_v}
-$$
+$$V \in \mathbb{R}^{n \times d_v}$$
+
 
 ### Why do we need these matrix shapes?
 
