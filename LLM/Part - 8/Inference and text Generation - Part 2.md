@@ -168,9 +168,7 @@ Before inference begins, the user has already supplied the whole prompt.
 
 So the model already knows:
 
-$
-[x_1,x_2,x_3,x_4]
-$
+$[x_1, x_2, x_3, x_4]$
 
 There is no uncertainty about what $x_2$, $x_3$, or $x_4$ are.
 
@@ -225,43 +223,31 @@ Because the identities of all four prompt tokens are already known.
 
 Their representations can be placed into one tensor:
 
-$
-Xinmathbb{R}^{4	imes d_{model}}
-$
+$$X \in \mathbb{R}^{4 \times d_{\text{model}}}$$
 
 Then the Transformer can compute:
 
-$
-Q=XW_Q
-$
+$Q=XW_Q$
 
-$
-K=XW_K
-$
+$K=XW_K$
 
-$
-V=XW_V
-$
+$V=XW_V$
 
 for all four prompt positions using large matrix multiplications.
 
 For example:
 
-$
-Qinmathbb{R}^{4	imes d_k}
-$
+$$Q \in \mathbb{R}^{4 \times d_k}$$
+
 
 and:
 
-$
-Kinmathbb{R}^{4	imes d_k}
-$
+$$K \in \mathbb{R}^{4 \times d_k}$$
+
 
 Therefore:
 
-$
-QK^Tinmathbb{R}^{4	imes4}
-$
+$$QK^T \in \mathbb{R}^{4 \times 4}$$
 
 So the hardware can calculate the attention scores for all four query positions in the same matrix operation.
 
@@ -282,34 +268,23 @@ That is where the causal mask enters.
 
 Conceptually, for four positions:
 
-$
-M=
-\begin{bmatrix}
-0 & -\infty & -\infty & -\infty\\
-0 & 0 & -\infty & -\infty\\
-0 & 0 & 0 & -\infty\\
-0 & 0 & 0 & 0
-\end{bmatrix}
-$
+$$M = \begin{bmatrix} 0 & -\infty & -\infty & -\infty \\\\ 0 & 0 & -\infty & -\infty \\\\ 0 & 0 & 0 & -\infty \\\\ 0 & 0 & 0 & 0 \end{bmatrix}$$
+
 
 The attention logits become:
 
-$
-A=
-\frac{QK^T}{\sqrt{d_k}}+M
-$
+$$A = \frac{QK^T}{\sqrt{d_k}} + M$$
+
 
 After softmax:
 
-$
-\operatorname{softmax}(A)
-$
+$$\text{softmax}(A)$$
+
 
 the masked future locations receive probability zero conceptually because:
 
-$
-e^{-\infty}=0
-$
+$$e^{-\infty} = 0$$
+
 
 So the GPU can calculate many prompt positions together, while the mask still guarantees that each position only uses legal past information.
 
@@ -333,16 +308,15 @@ This becomes even clearer if we think layer by layer.
 
 Suppose layer 4 has already produced:
 
-$
-H^{(4)}
-=
-\begin{bmatrix}
-h_1^{(4)}\\
-h_2^{(4)}\\
-h_3^{(4)}\\
+$$
+H^{(4)} = \begin{bmatrix}
+h_1^{(4)} \\
+h_2^{(4)} \\
+h_3^{(4)} \\
 h_4^{(4)}
 \end{bmatrix}
-$
+$$
+
 
 Layer 5 does **not** need to do:
 
@@ -355,17 +329,11 @@ then position 4
 
 Instead, it can use the whole matrix $H^{(4)}$ and compute:
 
-$
-Q=H^{(4)}W_Q
-$
+$Q=H^{(4)}W_Q$
 
-$
-K=H^{(4)}W_K
-$
+$K=H^{(4)}W_K$
 
-$
-V=H^{(4)}W_V
-$
+$V=H^{(4)}W_V$
 
 for all four positions together.
 
@@ -411,17 +379,14 @@ But before prediction, that token is not known.
 
 The model first has to compute:
 
-$
-P(x_5mid x_1,x_2,x_3,x_4)
-$
+$$P(x_5 \mid x_1, x_2, x_3, x_4)$$
+
 
 Then a decoding rule selects $x_5$.
 
 Only after $x_5$ becomes known can the model compute:
 
-$
-P(x_6mid x_1,x_2,x_3,x_4,x_5)
-$
+$$P(x_6 \mid x_1, x_2, x_3, x_4, x_5)$$
 
 So:
 
@@ -532,41 +497,30 @@ So all prompt positions can participate in the same batched matrix operations.
 
 ---
 
-## Question 4 — Why does the attention-score matrix become $n	imes n$?
+## Question 4 — Why does the attention-score matrix become $n \times n$ ?
 
 The unnormalized attention score matrix comes from:
 
-$$
-QK^T
-$$
+$$QK^T$$
 
 We have:
 
-$$
-Qinmathbb{R}^{n	imes d_k}
-$$
+$$Q \in \mathbb{R}^{n \times d_k}$$
+
 
 and:
 
-$$
-K^Tinmathbb{R}^{d_k	imes n}
-$$
+$$K^T \in \mathbb{R}^{d_k \times n}$$
 
 Therefore:
 
-$$
-QK^Tinmathbb{R}^{n	imes n}
-$$
+$$QK^T \in \mathbb{R}^{n \times n}$$
 
 ### Dimension check
 
 The multiplication is:
 
-$$
-(n	imes d_k)(d_k	imes n)
-=
-n	imes n
-$$
+$$(n \times d_k)(d_k \times n) = n \times n$$
 
 So the matrix contains one score for every query-position/key-position pair.
 
@@ -578,43 +532,31 @@ Entry $(i,j)$ answers conceptually:
 
 If:
 
-$$
-n=4
-$$
+$$n=4$$
 
 then the logical score matrix is:
 
-$$
-4	imes4
-$$
+$$4	\times4$$
 
 or 16 pairwise positions.
 
 If:
 
-$$
-n=1000
-$$
+$$n=1000$$
 
 then:
 
-$$
-1000^2=1{,}000{,}000
-$$
+$$1000^2=1{,}000{,}000$$
 
 pairwise score positions exist.
 
 If:
 
-$$
-n=2000
-$$
+$$n=2000$$
 
 then:
 
-$$
-2000^2=4{,}000{,}000
-$$
+$$2000^2=4{,}000{,}000$$
 
 pairwise score positions exist.
 
@@ -624,7 +566,7 @@ Because this is where the familiar quadratic attention dependence on prompt leng
 
 But there is an important edge case:
 
-> Modern kernels such as memory-efficient or fused attention do not necessarily materialize the entire $n	imes n$ matrix in GPU memory.
+> Modern kernels such as memory-efficient or fused attention do not necessarily materialize the entire $n \times n$ matrix in GPU memory.
 
 The **logical attention relationships** are still $n^2$ for ordinary dense attention, but optimized implementations can compute them in tiles and reduce memory traffic.
 
@@ -640,68 +582,46 @@ That distinction matters in production systems.
 
 ---
 
-## Question 5 — Why do we divide attention scores by $sqrt{d_k}$?
+## Question 5 — Why do we divide attention scores by $\sqrt{d_k}$?
 
 Scaled dot-product attention uses:
 
-$$
-rac{QK^T}{sqrt{d_k}}
-$$
+$$\frac{QK^T}{\sqrt{d_k}}$$
 
-Why not just use:
 
-$$
-QK^T
-$$
-
-?
+Why not just use: $QK^T$ ?
 
 The reason is statistical stability.
 
 Suppose the components of a query vector and a key vector are roughly independent with:
 
-$$
-mathbb{E}[q_r]=0
-$$
+$$\mathbb{E}[q_r] = 0$$
 
-$$
-mathbb{E}[k_r]=0
-$$
+$$\mathbb{E}[k_r] = 0$$
+
 
 and approximately unit variance.
 
 Their dot product is:
 
-$$
-qcdot k
-=
-sum_{r=1}^{d_k}q_rk_r
-$$
+$$q \cdot k = \sum_{r=1}^{d_k} q_r k_r$$
+
 
 If each product contributes roughly variance 1, then the variance of the sum grows approximately as:
 
-$$
-operatorname{Var}(qcdot k)approx d_k
-$$
+$$\text{Var}(q \cdot k) = d_k$$
+
 
 Therefore the standard deviation grows approximately as:
 
-$$
-sqrt{d_k}
-$$
+$$\sqrt{d_k}$$
 
 So as $d_k$ gets larger, raw dot products tend to become larger in magnitude.
 
-Dividing by $sqrt{d_k}$ gives:
+Dividing by $\sqrt{d_k}$ gives:
 
-$$
-operatorname{Var}
-left(
-rac{qcdot k}{sqrt{d_k}}
+$$\text{Var}\left(\frac{q \cdot k}{\sqrt{d_k}}\right) = 1$$
 
-ight)
-approx1
-$$
 
 under this simplified assumption.
 
@@ -711,23 +631,19 @@ Because softmax is sensitive to scale.
 
 Suppose the scores are:
 
-$$
-[1,2,3]
-$$
+$$[1,2,3]$$
 
 Softmax is relatively smooth.
 
 But if the scores become:
 
-$$
-[10,20,30]
-$$
+$$[10,20,30]$$
 
 softmax becomes extremely peaked.
 
 Very large dot products can therefore push softmax into saturated regions where almost all probability goes to one position.
 
-The $sqrt{d_k}$ scaling keeps attention logits in a more stable range.
+The $\sqrt{d_k}$ scaling keeps attention logits in a more stable range.
 
 ### Edge case — Does this derivation exactly describe trained Transformers?
 
@@ -735,7 +651,7 @@ Not exactly.
 
 Real hidden states are not perfectly independent, zero-mean, unit-variance random variables.
 
-The derivation is an intuition for why the scale grows with dimensionality and why dividing by $sqrt{d_k}$ is useful.
+The derivation is an intuition for why the scale grows with dimensionality and why dividing by $\sqrt{d_k}$ is useful.
 
 ---
 
@@ -746,32 +662,18 @@ It uses a **causal mask**.
 Before softmax, the attention computation can be written as:
 
 $$
-A
-=
-rac{QK^T}{sqrt{d_k}}
-+
-M
+A = \frac{QK^T}{\sqrt{d_k}} + M
 $$
 
 where $M$ is the causal mask.
 
 For a four-token sequence, conceptually:
 
-$$
-M=
-egin{bmatrix}
-0 & -infty & -infty & -infty\\
-0 & 0 & -infty & -infty\\
-0 & 0 & 0 & -infty\\
-0 & 0 & 0 & 0
-end{bmatrix}
-$$
+$$M = \begin{bmatrix} 0 & -\infty & -\infty & -\infty \\\\ 0 & 0 & -\infty & -\infty \\\\ 0 & 0 & 0 & -\infty \\\\ 0 & 0 & 0 & 0 \end{bmatrix}$$
 
 Then:
 
-$$
-operatorname{softmax}(A)
-$$
+$$\text{softmax}(A)$$
 
 turns the masked future entries into probability approximately equal to zero.
 
@@ -779,9 +681,7 @@ Why?
 
 Because:
 
-$$
-e^{-infty}=0
-$$
+$$e^{-\infty} = 0$$
 
 conceptually.
 
@@ -813,46 +713,23 @@ mask illegal future dependencies
 
 A simplified single-head form is:
 
-$$
-operatorname{Attention}(Q,K,V)
-=
-operatorname{softmax}
-left(
-rac{QK^T}{sqrt{d_k}}+M
-
-ight)V
-$$
+$$\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}} + M\right)V$$
 
 Let:
 
-$$
-S=
-operatorname{softmax}
-left(
-rac{QK^T}{sqrt{d_k}}+M
-
-ight)
-$$
+$$S = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}} + M\right)$$
 
 Then:
 
-$$
-Sinmathbb{R}^{n	imes n}
-$$
+$$S \in \mathbb{R}^{n \times n}$$
 
 and:
 
-$$
-Vinmathbb{R}^{n	imes d_v}
-$$
+$$V \in \mathbb{R}^{n \times d_v}$$
 
 Therefore:
 
-$$
-SV
-in
-mathbb{R}^{n	imes d_v}
-$$
+$$SV \in \mathbb{R}^{n \times d_v}$$
 
 ### What does this mean?
 
@@ -860,18 +737,12 @@ Every prompt position gets a new representation that is a weighted combination o
 
 For position $i$:
 
-$$
-o_i
-=
-sum_{j=1}^{i}
-alpha_{ij}v_j
-$$
+$$o_i = \sum_{j=1}^{i} \alpha_{ij} v_j$$
 
 where:
 
-$$
-sum_{j=1}^{i}alpha_{ij}=1
-$$
+$$\sum_{j=1}^{i} \alpha_{ij} = 1$$
+
 
 ### Why do we need this mathematics?
 
@@ -890,7 +761,7 @@ Suppose the prompt ends at position $n$.
 After the final Transformer layer we have:
 
 $$
-h_1,h_2,ldots,h_n
+h_1,h_2,\dots,h_n
 $$
 
 The next-token prediction is based on:
@@ -901,19 +772,13 @@ $$
 
 The LM head produces:
 
-$$
-z_{n+1}
-=
-W_{LM}h_n+b
-$$
+$$z_{n+1} = W_{\text{LM}}h_n + b$$
+
 
 and then conceptually:
 
-$$
-P(x_{n+1}mid x_1,ldots,x_n)
-=
-operatorname{softmax}(z_{n+1})
-$$
+$$P(x_{n+1} \mid x_1, \ldots, x_n) = \text{softmax}(z_{n+1})$$
+
 
 ### Then why compute hidden states for all earlier prompt positions?
 
@@ -1001,19 +866,7 @@ At a model-compute level, a long prompt generally requires more prefill work bef
 
 Conceptually:
 
-$$
-	ext{TTFT}
-approx
-	ext{queueing}
-+
-	ext{tokenization}
-+
-	ext{prefill}
-+
-	ext{first-token selection}
-+
-	ext{serving/network overhead}
-$$
+$$\text{TTFT} \approx \text{queueing} + \text{tokenization} + \text{prefill} + \text{first-token selection} + \text{serving/network overhead}$$
 
 This is not an exact universal formula.
 
@@ -1058,7 +911,7 @@ $$
 then the logical attention score matrix is:
 
 $$
-1	imes1
+1 \times1
 $$
 
 There are no earlier prompt positions to combine with.
@@ -1117,21 +970,7 @@ Prefill is:
 
 The core mathematical picture is:
 
-$$
-X
-
-ightarrow
-Q,K,V
-
-ightarrow
-rac{QK^T}{sqrt{d_k}}+M
-
-ightarrow
-operatorname{softmax}
-
-ightarrow
-	ext{contextual prompt representations}
-$$
+$$X \rightarrow Q,K,V \rightarrow \frac{QK^T}{\sqrt{d_k}}+M \rightarrow \text{softmax} \rightarrow \text{contextual prompt representations}$$
 
 The key insight is:
 
