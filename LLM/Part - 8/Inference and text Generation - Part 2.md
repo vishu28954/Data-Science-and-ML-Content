@@ -995,7 +995,7 @@ But eventually the model reaches the end of the prompt.
 Suppose the prompt is:
 
 $$
-x_1,x_2,ldots,x_n
+x_1,x_2,\dots,x_n
 $$
 
 The model predicts a distribution for:
@@ -1029,13 +1029,13 @@ The **decode phase** begins after prefill has produced the first next-token dist
 Suppose the prompt is:
 
 $$
-x_1,x_2,ldots,x_n
+x_1,x_2,\dots,x_n
 $$
 
 Prefill allows us to compute:
 
 $$
-P(x_{n+1}mid x_1,ldots,x_n)
+P(x_{n+1} \mid x_1,\ldots,x_n)
 $$
 
 A decoding strategy chooses one specific token:
@@ -1049,7 +1049,7 @@ Now—and only now—the model knows the next input token.
 It can then compute:
 
 $$
-P(x_{n+2}mid x_1,ldots,x_n,x_{n+1})
+P(x_{n+2} \mid x_1, \dots,x_n,x_{n+1})
 $$
 
 Then it selects:
@@ -1085,17 +1085,17 @@ $$
 The probability factorization is:
 
 $$
-P(x_{n+1},x_{n+2},x_{n+3}mid x_{le n})
+P(x_{n+1},x_{n+2},x_{n+3} \mid x_{\le n})
 $$
 
 which becomes:
 
 $$
-P(x_{n+1}mid x_{le n})
-cdot
-P(x_{n+2}mid x_{le n+1})
-cdot
-P(x_{n+3}mid x_{le n+2})
+P(x_{n+1} \mid x_{le n})
+\cdot
+P(x_{n+2} \mid x_{le n+1})
+\cdot
+P(x_{n+3} \mid x_{le n+2})
 $$
 
 The second factor requires knowing $x_{n+1}$.
@@ -1136,76 +1136,58 @@ To predict token $x_{t+1}$, the model processes the newest available token repre
 
 For one attention head, let the new query be:
 
-$$
-q_tinmathbb{R}^{1	imes d_k}
-$$
+$$q_t \in \mathbb{R}^{1 \times d_k}$$
 
 The keys for positions up to $t$ can be represented as:
 
 $$
-K_{1:t}inmathbb{R}^{t	imes d_k}
+K_{1:t} \in \mathbb{R}^{\times d_k}
 $$
 
 Then:
 
 $$
-K_{1:t}^Tinmathbb{R}^{d_k	imes t}
+K_{1:t}^T \in \mathbb{R}^{d_k	\times t}
 $$
 
 So the attention-score vector is:
 
 $$
-q_tK_{1:t}^T
-in
-mathbb{R}^{1	imes t}
+q_tK_{1:t}^T \in \mathbb{R}^{1	\times t}
 $$
 
 ### Dimension check
 
 $$
-(1	imes d_k)(d_k	imes t)
-=
-1	imes t
+(1	\times d_k)(d_k	\times t) = 1	\times t
 $$
 
 This means the new position obtains one attention score for every key position available in its context.
 
 After scaling and softmax:
 
-$$
-alpha_t
-=
-operatorname{softmax}
-left(
-rac{q_tK_{1:t}^T}{sqrt{d_k}}
+$$\alpha_t = \text{softmax}\left(\frac{q_tK_{1:t}^T}{\sqrt{d_k}}\right)$$
 
-ight)
-$$
 
 where:
 
-$$
-alpha_tinmathbb{R}^{1	imes t}
-$$
+$$\alpha_t \in \mathbb{R}^{1 \times t}$$
+
 
 If:
 
-$$
-V_{1:t}inmathbb{R}^{t	imes d_v}
-$$
+$$V_{1:t} \in \mathbb{R}^{t \times d_v}$$
+
 
 then:
 
-$$
-o_t
-=
-alpha_tV_{1:t}
-$$
+$$o_t = \alpha_t V_{1:t}$$
+
 
 has shape:
 
 $$
-o_tinmathbb{R}^{1	imes d_v}
+o_t \in \mathbb{R}^{1	\times d_v}
 $$
 
 ### Why do we need this mathematics?
@@ -1215,9 +1197,7 @@ It reveals the key contrast with prefill.
 During prefill:
 
 $$
-QK^T
-in
-mathbb{R}^{n	imes n}
+QK^T \in \mathbb{R}^{n	\times n}
 $$
 
 for the known prompt.
@@ -1225,9 +1205,7 @@ for the known prompt.
 During an optimized one-token decode step, the new query interacts with all available keys:
 
 $$
-q_tK_{1:t}^T
-in
-mathbb{R}^{1	imes t}
+q_tK_{1:t}^T \in \mathbb{R}^{1	\times t}
 $$
 
 So:
@@ -1298,22 +1276,17 @@ Without caching, to produce each new token the model may need to recompute repre
 The sequence lengths processed would roughly be:
 
 $$
-P,;P+1,;P+2,ldots,P+G-1
+P,;P+1,;P+2, \ldots,P+G-1
 $$
 
 The total number of token positions repeatedly processed across decode steps would be:
 
-$$
-sum_{g=0}^{G-1}(P+g)
-$$
+$$\sum_{g=0}^{G-1} (P+g)$$
 
 Using the arithmetic-series formula:
 
-$$
-sum_{g=0}^{G-1}(P+g)
-=
-GP+rac{G(G-1)}{2}
-$$
+$$\sum_{g=0}^{G-1}(P+g) = GP + \frac{G(G-1)}{2}$$
+
 
 ### Numerical example
 
@@ -1331,27 +1304,16 @@ $$
 
 Then:
 
-$$
-GP=100	imes1000=100{,}000
-$$
+$$GP = 100 \times 1000 = 100{,}000$$
+
 
 and:
 
-$$
-rac{G(G-1)}{2}
-=
-rac{100	imes99}{2}
-=
-4950
-$$
+$$\frac{G(G-1)}{2} = \frac{100 \times 99}{2} = 4950$$
 
 So:
 
-$$
-100{,}000+4950
-=
-104{,}950
-$$
+$$100{,}000 + 4950 = 104{,}950$$
 
 token-position evaluations would be involved in this simplified repeated-prefix view.
 
@@ -1382,9 +1344,7 @@ $$
 because:
 
 $$
-q_tK_{1:t}^T
-in
-mathbb{R}^{1	imes t}
+q_tK_{1:t}^T \in \mathbb{R}^{1	\times t}
 $$
 
 So as the context gets longer, the new token interacts with more cached positions.
@@ -1433,29 +1393,17 @@ seconds of sequential decode work, ignoring overlap and serving overhead.
 
 For example, if the model effectively produces:
 
-$$
-50	ext{ tokens/second}
-$$
+$$50 \text{ tokens/second}$$
 
 then average model-side time per token is approximately:
 
-$$
-rac{1}{50}
-=
-0.02	ext{ seconds}
-=
-20	ext{ ms}
-$$
+$$\frac{1}{50} = 0.02 \text{ seconds} = 20 \text{ ms}$$
+
 
 Generating 200 tokens would then require roughly:
 
-$$
-200	imes20	ext{ ms}
-=
-4000	ext{ ms}
-=
-4	ext{ s}
-$$
+$$200 \times 20 \text{ ms} = 4000 \text{ ms} = 4 \text{ s}$$
+
 
 in this simplified example.
 
@@ -1485,11 +1433,8 @@ A useful serving metric is often called **Time Per Output Token (TPOT)** or an e
 
 Conceptually:
 
-$$
-	ext{TPOT}
-approx
-rac{	ext{decode time}}{	ext{number of generated tokens}}
-$$
+$$\text{TPOT} \approx \frac{\text{decode time}}{\text{number of generated tokens}}$$
+
 
 But real systems need careful measurement because:
 
@@ -1648,31 +1593,25 @@ Decode is:
 The core conditional dependency is:
 
 $$
-P(x_{t+1}mid x_{le t})
+P(x_{t+1} \mid x_{\le t})
 $$
 
 and one-head attention for the newest position can be viewed as:
 
 $$
-q_t
-in
-mathbb{R}^{1	imes d_k}
+q_t \in \mathbb{R}^{1	\times d_k}
 $$
 
 attending over:
 
 $$
-K_{1:t}
-in
-mathbb{R}^{t	imes d_k}
+K_{1:t} \in \mathbb{R}^{\times d_k}
 $$
 
 to produce:
 
 $$
-q_tK_{1:t}^T
-in
-mathbb{R}^{1	imes t}
+q_tK_{1:t}^T \in \mathbb{R}^{1	\times t}
 $$
 
 Memory line:
@@ -1768,56 +1707,43 @@ Core equations:
 ### Prompt tensor
 
 $$
-Xinmathbb{R}^{n	imes d_{model}}
+X \in \mathbb{R}^{n \times d_{\text{model}}}
 $$
 
 ### Query, Key, Value projections
 
 $$
-Q=XW_Q,qquad K=XW_K,qquad V=XW_V
+Q = XW_Q, \qquad K = XW_K, \qquad V = XW_V
 $$
 
 ### Prefill attention
 
 $$
-operatorname{Attention}(Q,K,V)
-=
-operatorname{softmax}
-left(
-rac{QK^T}{sqrt{d_k}}+M
-
-ight)V
+\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^T}{\sqrt{d_k}} + M\right)V
 $$
 
 ### Prefill score shape
 
 $$
-QK^Tinmathbb{R}^{n	imes n}
+QK^T \in \mathbb{R}^{n \times n}
 $$
 
 ### One-token decode score shape
 
 $$
-q_tK_{1:t}^T
-in
-mathbb{R}^{1	imes t}
+q_t K_{1:t}^T \in \mathbb{R}^{1 \times t}
 $$
 
 ### Autoregressive dependency
 
 $$
-P(x_{n+1},x_{n+2},ldots)
-=
-prod_t
-P(x_tmid x_{<t})
+P(x_{n+1}, x_{n+2}, \ldots) = \prod_{t} P(x_t \mid x_{<t})
 $$
 
 ### Repeated-prefix work without caching
 
 $$
-sum_{g=0}^{G-1}(P+g)
-=
-GP+rac{G(G-1)}{2}
+\sum_{g=0}^{G-1} (P+g) = GP + \frac{G(G-1)}{2}
 $$
 
 The next detailed-study block is:
@@ -1827,5 +1753,6 @@ The next detailed-study block is:
 ```
 
 The question carrying us forward is:
+
 
 > **If old tokens do not change during decode, why should their Keys and Values ever be recomputed?**
