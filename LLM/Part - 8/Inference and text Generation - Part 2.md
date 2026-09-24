@@ -1076,19 +1076,19 @@ predict one token
 
 Because those future token identities are unknown.
 
-Suppose we want to generate:
+Suppose we want to generate these tokens 
 
 $$
 x_{n+1},x_{n+2},x_{n+3}
 $$
 
-The probability factorization is:
+Then the conditional probability of generating $x_{n+1}, x_{n+2}, x_{n+3}$ becomes this :
 
 $$
 P(x_{n+1},x_{n+2},x_{n+3} \mid x_{\le n})
 $$
 
-which becomes:
+According to probability theory that lets us factor this equation using chain rule, which becomes :
 
 $$
 P(x_{n+1} \mid x_{\le n})
@@ -1097,6 +1097,14 @@ P(x_{n+2} \mid x_{\le n+1})
 \cdot
 P(x_{n+3} \mid x_{\le n+2})
 $$
+
+So, in the equation we can see that the model first has to compute 
+
+$$
+P(x_{n+1} \mid x_{\le n})
+$$
+
+which means to compute the next token $x_{n+1}$ given all the tokens of the prompt, then 
 
 The second factor requires knowing $x_{n+1}$.
 
