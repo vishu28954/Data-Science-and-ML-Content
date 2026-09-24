@@ -1164,6 +1164,8 @@ For one attention head, let the new query be:
 
 $$q_t \in \mathbb{R}^{1 \times d_k}$$
 
+It means 1 row and d_k dimensions. Only 1 row means that we have query for the new position only.
+
 The keys for positions up to $t$ can be represented as:
 
 $$
