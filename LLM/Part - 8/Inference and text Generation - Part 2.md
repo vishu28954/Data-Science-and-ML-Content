@@ -1091,11 +1091,11 @@ $$
 which becomes:
 
 $$
-P(x_{n+1} \mid x_{le n})
+P(x_{n+1} \mid x_{\le n})
 \cdot
-P(x_{n+2} \mid x_{le n+1})
+P(x_{n+2} \mid x_{\le n+1})
 \cdot
-P(x_{n+3} \mid x_{le n+2})
+P(x_{n+3} \mid x_{\le n+2})
 $$
 
 The second factor requires knowing $x_{n+1}$.
