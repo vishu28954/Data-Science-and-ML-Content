@@ -1134,6 +1134,24 @@ We will revisit this deeply in 8.14.
 
 ## Question 3 — What does one decode step look like mathematically?
 
+The easiest way to understand it is to start from the situation we are in.
+
+Suppose the model has already seen $t$ tokens:
+
+$$ x_1, x_2, \ldots, x_t $$
+
+and now it wants to predict:
+
+$$ x_{t+1} $$
+
+At this point, the model is not processing the entire sequence like prefill. It is processing one new position against all the previous context i.e all the keys. 
+
+The core idea is:
+
+The new token creates one Query, and that Query compares itself against all previous Keys.
+
+That is what all these matrix shapes are showing.
+
 Suppose the current context has length:
 
 $$
@@ -1149,7 +1167,7 @@ $$q_t \in \mathbb{R}^{1 \times d_k}$$
 The keys for positions up to $t$ can be represented as:
 
 $$
-K_{1:t} \in \mathbb{R}^{\times d_k}
+K_{1:t} \in \mathbb{R}^{t \times d_k}
 $$
 
 Then:
@@ -1197,6 +1215,19 @@ has shape:
 $$
 o_t \in \mathbb{R}^{1	\times d_v}
 $$
+
+#### Query, Key, Value intuition
+
+A very useful mental model is:
+
+Query
+= what am I looking for?
+
+Key
+= what kind of information do I represent?
+
+Value
+= what information do I actually contain?
 
 ### Why do we need this mathematics?
 
