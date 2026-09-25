@@ -106,35 +106,41 @@ For every Transformer layer, self-attention produces Key and Value vectors for e
 
 For one attention head, suppose token position $i$ has:
 
-$$k_i in mathbb{R}^{d_h}$$
+$$k_i \in \mathbb{R}^{d_h}$$
 
 and:
 
-$$v_i in mathbb{R}^{d_h}$$
+$$v_i \in \mathbb{R}^{d_h}$$
 
 where $d_h$ is the head dimension.
 
 After processing $t$ tokens, we can stack the Keys as:
 
-$$K_{	ext{cache}} =
-egin{bmatrix}
-k_1 \
-k_2 \
-dots \
+$$
+K_{\text{cache}} =
+\begin{bmatrix}
+k_1 \\\\
+k_2 \\\\
+\dots \\\\
 k_t
-end{bmatrix}
-in mathbb{R}^{t 	imes d_h}$$
+\end{bmatrix}
+\in \mathbb{R}^{t \times d_h}
+$$
+
 
 Similarly, the Values are:
 
-$$V_{	ext{cache}} =
-egin{bmatrix}
-v_1 \
-v_2 \
-dots \
+$$
+V_{\text{cache}} =
+\begin{bmatrix}
+v_1 \\\\
+v_2 \\\\
+\dots \\\\
 v_t
-end{bmatrix}
-in mathbb{R}^{t 	imes d_h}$$
+\end{bmatrix}
+\in \mathbb{R}^{t \times d_h}
+$$
+
 
 So conceptually:
 
@@ -170,19 +176,23 @@ It is created during **prefill**.
 
 Suppose the prompt is:
 
-$$x_1, x_2, ldots, x_n$$
+$$x_1, x_2, \ldots, x_n$$
 
 During prefill, every Transformer layer already computes Keys and Values for those prompt positions.
 
 So after prefill, each layer already has:
 
-$$K_{	ext{cache}}^{(ell)} = [k_1^{(ell)}, k_2^{(ell)}, ldots, k_n^{(ell)}]$$
+$$
+K_{\text{cache}}^{(\ell)} = [k_1^{(\ell)}, k_2^{(\ell)}, \ldots, k_n^{(\ell)}]
+$$
 
 and:
 
-$$V_{	ext{cache}}^{(ell)} = [v_1^{(ell)}, v_2^{(ell)}, ldots, v_n^{(ell)}]$$
+$$
+V_{\text{cache}}^{(\ell)} = [v_1^{(\ell)}, v_2^{(\ell)}, \ldots, v_n^{(\ell)}]
+$$
 
-where $ell$ denotes the Transformer layer.
+where $\ell$ denotes the Transformer layer.
 
 This is important:
 
@@ -200,11 +210,15 @@ Suppose the current sequence contains $t$ tokens.
 
 The old cache contains:
 
-$$K_{	ext{cache}}^{1:t}$$
+$$
+K_{\text{cache}}^{1:t}
+$$
 
 and:
 
-$$V_{	ext{cache}}^{1:t}$$
+$$
+V_{\text{cache}}^{1:t}
+$$
 
 Now the newly available token produces a new Query, Key, and Value:
 
@@ -216,76 +230,55 @@ $$v_{t+1}$$
 
 The new Key is appended to the Key cache:
 
-$$K_{	ext{cache}}^{1:t+1}
-=
-left[
-K_{	ext{cache}}^{1:t};
-k_{t+1}
-
-ight]$$
+$$
+K_{\text{cache}}^{1:t+1} = \left[K_{\text{cache}}^{1:t} ; k_{t+1}\right]
+$$
 
 Similarly:
 
-$$V_{	ext{cache}}^{1:t+1}
-=
-left[
-V_{	ext{cache}}^{1:t};
-v_{t+1}
-
-ight]$$
+$$
+V_{\text{cache}}^{1:t+1} = \left[ V_{\text{cache}}^{1:t} ; v_{t+1} \right]
+$$
 
 The new query then attends over the accumulated Keys:
 
-$$q_{t+1}
-left(K_{	ext{cache}}^{1:t+1}
-ight)^T$$
+$$
+q_{t+1} \left(K_{\text{cache}}^{1:t+1}\right)^T
+$$
+
 
 For one attention head:
 
-$$q_{t+1} in mathbb{R}^{1 	imes d_h}$$
+$$
+q_{t+1} \in \mathbb{R}^{1 \times d_h}
+$$
 
 and:
 
-$$K_{	ext{cache}}^{1:t+1}
-in
-mathbb{R}^{(t+1) 	imes d_h}$$
+$$
+K_{\text{cache}}^{1:t+1} \in \mathbb{R}^{(t+1) \times d_h}
+$$
+
 
 Therefore:
 
 $$
-q_{t+1}
-left(K_{	ext{cache}}^{1:t+1}
-ight)^T
-in
-mathbb{R}^{1 	imes (t+1)}
+q_{t+1} \left(K_{\text{cache}}^{1:t+1}\right)^T \in \mathbb{R}^{1 \times (t+1)}
 $$
 
 After scaling and softmax:
 
 $$
-alpha_{t+1}
-=
-operatorname{softmax}
-left(
-rac{
-q_{t+1}
-left(K_{	ext{cache}}^{1:t+1}
-ight)^T
-}{
-sqrt{d_h}
-}
-
-ight)
+\alpha_{t+1} = \text{softmax}\left(\frac{q_{t+1} \left(K_{\text{cache}}^{1:t+1}\right)^T}{\sqrt{d_h}}\right)
 $$
+
 
 Then the attention output is:
 
 $$
-o_{t+1}
-=
-alpha_{t+1}
-V_{	ext{cache}}^{1:t+1}
+o_{t+1} = \alpha_{t+1} V_{\text{cache}}^{1:t+1}
 $$
+
 
 ### What changed compared with recomputing everything?
 
@@ -365,21 +358,21 @@ Without caching, the model could repeatedly recompute the entire growing prefix.
 
 The sequence lengths would be:
 
-$$P, P+1, P+2, ldots, P+G-1$$
+$$P, P+1, P+2, \ldots, P+G-1$$
 
 Even if we count only how many token positions are repeatedly processed, the total is:
 
 $$
-sum_{g=0}^{G-1}(P+g)
+\sum_{g=0}^{G-1} (P+g)
 $$
+
 
 Using the arithmetic-series formula:
 
 $$
-sum_{g=0}^{G-1}(P+g)
-=
-GP+rac{G(G-1)}{2}
+\sum_{g=0}^{G-1} (P+g) = GP + \frac{G(G-1)}{2}
 $$
+
 
 ### Numerical example
 
@@ -393,25 +386,21 @@ $$G=100$$
 
 Then:
 
-$$GP=100 	imes 1000=100{,}000$$
+$$GP=100 \times 1000=100{,}000$$
 
 and:
 
 $$
-rac{G(G-1)}{2}
-=
-rac{100 	imes 99}{2}
-=
-4950
+\frac{G(G-1)}{2} = \frac{100 \times 99}{2} = 4950
 $$
+
 
 Therefore:
 
 $$
-100{,}000+4950
-=
-104{,}950
+100{,}000 + 4950 = 104{,}950
 $$
+
 
 token positions are repeatedly involved in this simplified full-prefix view.
 
@@ -435,15 +424,14 @@ $$O(s^2 d_h)$$
 
 At successive generation steps, the lengths are approximately:
 
-$$P, P+1, P+2, ldots, P+G-1$$
+$$P, P+1, P+2, \ldots, P+G-1$$
 
 So the cumulative attention-score work behaves like:
 
 $$
-sum_{g=0}^{G-1}
-Oleft((P+g)^2 d_h
-ight)
+\sum_{g=0}^{G-1} \mathcal{O}\left((P+g)^2 d_h\right)
 $$
+
 
 With a KV cache, each new token contributes only one new query against the existing history.
 
@@ -454,9 +442,7 @@ $$O((P+g)d_h)$$
 So cumulative attention-score work behaves like:
 
 $$
-sum_{g=0}^{G-1}
-Oleft((P+g)d_h
-ight)
+\sum_{g=0}^{G-1} \mathcal{O}\left((P+g)d_h\right)
 $$
 
 ### Why do we need this mathematics?
@@ -501,11 +487,11 @@ or approximately $t+1$ Keys.
 
 The attention-score vector has shape:
 
-$$1 	imes t$$
+$$1 \times t$$
 
 or, after appending the new position:
 
-$$1 	imes (t+1)$$
+$$1 \times (t+1)$$
 
 So as context length grows, the new query must interact with more cached Keys.
 
@@ -582,21 +568,7 @@ This tradeoff becomes extremely important in production LLM serving.
 A useful approximate formula is:
 
 $$
-M_{	ext{KV}}
-approx
-2
-	imes
-L
-	imes
-B
-	imes
-T
-	imes
-H_{	ext{KV}}
-	imes
-d_h
-	imes
-b
+M_{\text{KV}} \approx 2 \times L \times B \times T \times H_{\text{KV}} \times d_h \times b
 $$
 
 where:
@@ -604,7 +576,7 @@ where:
 - $L$ = number of Transformer layers
 - $B$ = batch size or number of active sequences
 - $T$ = cached sequence length per sequence
-- $H_{	ext{KV}}$ = number of Key/Value heads
+- $H_{	\text{KV}}$ = number of Key/Value heads
 - $d_h$ = dimension of each KV head
 - $b$ = bytes per stored element
 
@@ -632,7 +604,7 @@ $$B$$
 
 $$T$$
 
-$$H_{	ext{KV}}$$
+$$H_{\text{KV}}$$
 
 $$d_h$$
 
@@ -666,7 +638,7 @@ tokens.
 
 Suppose the model uses:
 
-$$H_{	ext{KV}}=8$$
+$$H_{	\text{KV}}=8$$
 
 KV heads.
 
@@ -676,40 +648,27 @@ $$d_h=128$$
 
 and the cache is stored in BF16 or FP16:
 
-$$b=2 	ext{ bytes}$$
+$$b=2 \text{ bytes}$$
 
 Then:
 
 $$
-M_{	ext{KV}}
-=
-2
-	imes
-32
-	imes
-1
-	imes
-8192
-	imes
-8
-	imes
-128
-	imes
-2
+M_{\text{KV}} = 2 \times 32 \times 1 \times 8192 \times 8 \times 128 \times 2
 $$
+
 
 This gives:
 
 $$
-M_{	ext{KV}}
-=
-1{,}073{,}741{,}824
-	ext{ bytes}
+M_{\text{KV}} = 1{,}073{,}741{,}824 \text{ bytes}
 $$
+
 
 which is approximately:
 
-$$1 	ext{ GiB}$$
+$$
+1 \text{ GiB}
+$$
 
 for a single 8192-token sequence.
 
@@ -718,10 +677,9 @@ for a single 8192-token sequence.
 Because memory scales linearly with $B$:
 
 $$
-16 	imes 1 	ext{ GiB}
-=
-16 	ext{ GiB}
+16 \times 1 \text{ GiB} = 16 \text{ GiB}
 $$
+
 
 approximately.
 
@@ -734,26 +692,25 @@ This immediately shows why KV memory can become a major concurrency bottleneck.
 From:
 
 $$
-M_{	ext{KV}}
-propto
-T
+M_{\text{KV}} \propto T
 $$
+
 
 we know KV memory is linear in cached sequence length.
 
 So if:
 
-$$T 
-ightarrow 2T$$
+$$
+T \rightarrow 2T
+$$
+
 
 then approximately:
 
 $$
-M_{	ext{KV}}
-
-ightarrow
-2M_{	ext{KV}}
+M_{\text{KV}} \rightarrow 2M_{\text{KV}}
 $$
+
 
 For the previous example:
 
@@ -788,9 +745,9 @@ The same reasoning applies.
 Since:
 
 $$
-M_{	ext{KV}}
-propto B
+M_{\text{KV}} \propto B
 $$
+
 
 doubling active batch size approximately doubles KV-cache memory.
 
@@ -821,9 +778,9 @@ So concurrency is often constrained not only by compute, but also by KV-cache ca
 In the memory formula:
 
 $$
-M_{	ext{KV}}
-propto b
+M_{\text{KV}} \propto b
 $$
+
 
 where $b$ is bytes per element.
 
