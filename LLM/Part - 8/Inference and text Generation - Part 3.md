@@ -64,7 +64,7 @@ Next topics:
 
 Suppose the prompt contains:
 
-$$x_1, x_2, ldots, x_n$$
+$$x_1, x_2, \ldots, x_n$$
 
 During prefill, every Transformer layer computes Queries, Keys, and Values for the prompt tokens.
 
@@ -78,19 +78,19 @@ $$V = XW_V$$
 
 After the prompt is processed, the model predicts the first output token:
 
-$$P(x_{n+1} mid x_1, x_2, ldots, x_n)$$
+$$P(x_{n+1} \mid x_1, x_2, \ldots, x_n)$$
 
 Suppose the decoder selects $x_{n+1}$.
 
 To predict the next token, the model now needs:
 
-$$P(x_{n+2} mid x_1, x_2, ldots, x_n, x_{n+1})$$
+$$P(x_{n+2} \mid x_1, x_2, \ldots, x_n, x_{n+1})$$
 
 The new token $x_{n+1}$ must attend to the previous context.
 
 But here is the important observation:
 
-> The old prompt tokens $x_1, ldots, x_n$ have not changed.
+> The old prompt tokens $x_1, \ldots, x_n$ have not changed.
 
 Therefore, the Key and Value vectors previously computed for those old tokens have not changed either.
 
@@ -221,7 +221,8 @@ $$K_{	ext{cache}}^{1:t+1}
 left[
 K_{	ext{cache}}^{1:t};
 k_{t+1}
-ight]$$
+
+ight]$$
 
 Similarly:
 
@@ -230,12 +231,14 @@ $$V_{	ext{cache}}^{1:t+1}
 left[
 V_{	ext{cache}}^{1:t};
 v_{t+1}
-ight]$$
+
+ight]$$
 
 The new query then attends over the accumulated Keys:
 
 $$q_{t+1}
-left(K_{	ext{cache}}^{1:t+1}ight)^T$$
+left(K_{	ext{cache}}^{1:t+1}
+ight)^T$$
 
 For one attention head:
 
@@ -251,7 +254,8 @@ Therefore:
 
 $$
 q_{t+1}
-left(K_{	ext{cache}}^{1:t+1}ight)^T
+left(K_{	ext{cache}}^{1:t+1}
+ight)^T
 in
 mathbb{R}^{1 	imes (t+1)}
 $$
@@ -265,11 +269,13 @@ operatorname{softmax}
 left(
 rac{
 q_{t+1}
-left(K_{	ext{cache}}^{1:t+1}ight)^T
+left(K_{	ext{cache}}^{1:t+1}
+ight)^T
 }{
 sqrt{d_h}
 }
-ight)
+
+ight)
 $$
 
 Then the attention output is:
@@ -435,7 +441,8 @@ So the cumulative attention-score work behaves like:
 
 $$
 sum_{g=0}^{G-1}
-Oleft((P+g)^2 d_hight)
+Oleft((P+g)^2 d_h
+ight)
 $$
 
 With a KV cache, each new token contributes only one new query against the existing history.
@@ -448,7 +455,8 @@ So cumulative attention-score work behaves like:
 
 $$
 sum_{g=0}^{G-1}
-Oleft((P+g)d_hight)
+Oleft((P+g)d_h
+ight)
 $$
 
 ### Why do we need this mathematics?
@@ -735,13 +743,15 @@ we know KV memory is linear in cached sequence length.
 
 So if:
 
-$$T ightarrow 2T$$
+$$T 
+ightarrow 2T$$
 
 then approximately:
 
 $$
 M_{	ext{KV}}
-ightarrow
+
+ightarrow
 2M_{	ext{KV}}
 $$
 
