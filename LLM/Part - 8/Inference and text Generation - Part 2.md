@@ -1421,13 +1421,13 @@ Each generated token depends on the token before it.
 So if the system generates one token every:
 
 $$
-	au
+\tau
 $$
 
 seconds, then generating $G$ tokens takes at least roughly:
 
 $$
-G	au
+G\tau
 $$
 
 seconds of sequential decode work, ignoring overlap and serving overhead.
