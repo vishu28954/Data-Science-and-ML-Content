@@ -825,7 +825,7 @@ In ordinary Multi-Head Attention, the model may have the same number of Query he
 
 Suppose:
 
-$$H_Q = H_{	ext{KV}} = 32$$
+$$H_Q = H_{	\text{KV}} = 32$$
 
 Then we store Keys and Values for all 32 KV heads.
 
@@ -837,35 +837,34 @@ $$H_Q=32$$
 
 but:
 
-$$H_{	ext{KV}}=8$$
+$$H_{\text{KV}}=8$$
 
 Then the KV-cache memory formula uses:
 
-$$H_{	ext{KV}}=8$$
+$$H_{\text{KV}}=8$$
 
 instead of:
 
-$$H_{	ext{KV}}=32$$
+$$H_{\text{KV}}=32$$
 
 So the raw KV-cache size becomes approximately:
 
 $$
-rac{8}{32}
-=
-rac{1}{4}
+\frac{8}{32} = \frac{1}{4}
 $$
+
 
 of the corresponding 32-KV-head configuration, assuming the other dimensions are the same.
 
 In Multi-Query Attention:
 
-$$H_{	ext{KV}}=1$$
+$$H_{\text{KV}}=1$$
 
 so all Query heads share a single Key head and a single Value head.
 
 ### Why does this matter?
 
-Because reducing $H_{	ext{KV}}$ reduces:
+Because reducing $H_{\text{KV}}$ reduces:
 
 - KV-cache memory
 - KV-cache bandwidth requirements
@@ -899,7 +898,7 @@ positions, then attention still needs to interact with approximately $T$ histori
 Conceptually:
 
 $$
-q_t K_{	ext{cache}}^T
+q_t K_{\text{cache}}^T
 $$
 
 has a score vector whose length grows with context.
@@ -987,9 +986,7 @@ Its Key may already include a position-dependent transformation such as RoPE.
 Conceptually, we can think of:
 
 $$
-k_t
-=
-	ext{PositionAwareKey}(x_t, t)
+k_t = \text{PositionAwareKey}(x_t, t)
 $$
 
 When that Key is cached, the positional information associated with position $t$ must remain consistent.
@@ -1116,15 +1113,13 @@ positions.
 Conceptually:
 
 $$
-K_{	ext{active}}
-=
-[k_{t-W+1}, ldots, k_t]
+K_{	\text{active}} = [k_{t-W+1}, \ldots, k_t]
 $$
 
 instead of:
 
 $$
-[k_1, ldots, k_t]
+[k_1, \ldots, k_t]
 $$
 
 This can bound active KV memory for those layers.
@@ -1227,13 +1222,13 @@ $$v_1, v_2, v_3$$
 
 The cache becomes:
 
-$$K_{	ext{cache}}=[k_1,k_2,k_3]$$
+$$K_{	\text{cache}}=[k_1,k_2,k_3]$$
 
-$$V_{	ext{cache}}=[v_1,v_2,v_3]$$
+$$V_{	\text{cache}}=[v_1,v_2,v_3]$$
 
 The model predicts:
 
-$$P(x_4 mid x_1,x_2,x_3)$$
+$$P(x_4 \mid x_1,x_2,x_3)$$
 
 Suppose $x_4$ is selected.
 
@@ -1243,21 +1238,21 @@ $$q_4, k_4, v_4$$
 
 Then append:
 
-$$K_{	ext{cache}}=[k_1,k_2,k_3,k_4]$$
+$$K_{	\text{cache}}=[k_1,k_2,k_3,k_4]$$
 
-$$V_{	ext{cache}}=[v_1,v_2,v_3,v_4]$$
+$$V_{	\text{cache}}=[v_1,v_2,v_3,v_4]$$
 
 The query $q_4$ attends over the cached Keys:
 
 $$
-q_4K_{	ext{cache}}^T
+q_4K_{	\text{cache}}^T
 $$
 
 and uses the cached Values to form its attention output.
 
 The model then predicts:
 
-$$P(x_5 mid x_1,x_2,x_3,x_4)$$
+$$P(x_5 \mid x_1,x_2,x_3,x_4)$$
 
 After $x_5$ is selected, compute only:
 
@@ -1265,9 +1260,9 @@ $$q_5,k_5,v_5$$
 
 and append:
 
-$$K_{	ext{cache}}=[k_1,k_2,k_3,k_4,k_5]$$
+$$K_{	\text{cache}}=[k_1,k_2,k_3,k_4,k_5]$$
 
-$$V_{	ext{cache}}=[v_1,v_2,v_3,v_4,v_5]$$
+$$V_{	\text{cache}}=[v_1,v_2,v_3,v_4,v_5]$$
 
 Then repeat.
 
@@ -1307,15 +1302,11 @@ The simplest mental model is:
 Mathematically:
 
 $$
-K_{	ext{cache}}
-=
-[k_1,k_2,ldots,k_t]
+K_{	\text{cache}} = [k_1,k_2,\ldots,k_t]
 $$
 
 $$
-V_{	ext{cache}}
-=
-[v_1,v_2,ldots,v_t]
+V_{\text{cache}} = [v_1,v_2,\ldots,v_t]
 $$
 
 For the newly available token:
@@ -1325,8 +1316,7 @@ $$q_{t+1}$$
 we reuse the cached history:
 
 $$
-q_{t+1}
-K_{	ext{cache}}^T
+q_{t+1}K_{\text{cache}}^T
 $$
 
 instead of recomputing old Keys and Values.
@@ -1358,7 +1348,7 @@ We now have an efficient mechanism for producing next-token logits during autore
 The model can repeatedly produce a vector:
 
 $$
-z in mathbb{R}^{|V|}
+z \in \mathbb{R}^{|V|}
 $$
 
 containing one logit for every vocabulary token.
