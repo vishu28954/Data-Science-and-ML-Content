@@ -138,25 +138,46 @@ So there is one logit for every vocabulary token.
 
 For example:
 
-\`\`\`text
-Token        Logit
-------------------
-"Paris"       5.1
-"London"      2.7
-"France"      1.8
-"."           0.9
-...
-\`\`\`
+<!-- GitHub-styled Markdown Table -->
+<table>
+  <thead>
+    <tr>
+      <th align="left">Token</th>
+      <th align="right">Logit</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>"Paris"</code></td>
+      <td align="right">5.1</td>
+    </tr>
+    <tr>
+      <td><code>"London"</code></td>
+      <td align="right">2.7</td>
+    </tr>
+    <tr>
+      <td><code>"France"</code></td>
+      <td align="right">1.8</td>
+    </tr>
+    <tr>
+      <td><code>"."</code></td>
+      <td align="right">0.9</td>
+    </tr>
+    <tr>
+      <td><em>...</em></td>
+      <td align="right"><em>...</em></td>
+    </tr>
+  </tbody>
+</table>
+
+
 
 The logits are not probabilities yet.
 
 To obtain probabilities, we can apply softmax:
 
 $$
-P(i \mid x_{\le t})
-=
-\frac{e^{z_i}}
-{\sum_{j=1}^{|\mathcal{V}|} e^{z_j}}
+P(i \mid x_{\le t}) = \frac{e^{z_i}}{\sum_{j=1}^{|\mathcal{V}|} e^{z_j}}
 $$
 
 Now we have a probability distribution over possible next tokens.
@@ -167,44 +188,64 @@ The decoding algorithm decides what to do with that distribution.
 
 ## Question 2 — What is greedy decoding?
 
-Greedy decoding chooses the token with the highest probability at the current generation step.
+<!-- GitHub-styled Core Concept Block -->
+<div align="left">
+  <p>Greedy decoding chooses the token with the highest probability at the current generation step.</p>
+</div>
 
-Mathematically:
+<p>Mathematically:</p>
 
 $$
-x_{t+1}
-=
-\underset{i}{\operatorname{argmax}}
-\;
-P(i \mid x_{\le t})
+x_{t+1} = \text{argmax}_i P(i \mid x_{\le t})
 $$
 
-In plain English:
 
-> Look at every possible next token and choose the one with the largest probability.
+<p>In plain English:</p>
 
-Suppose:
+<blockquote>
+  <p>Look at every possible next token and choose the one with the largest probability.</p>
+</blockquote>
 
-\`\`\`text
-Token       Probability
------------------------
-A              0.60
-B              0.25
-C              0.10
-D              0.05
-\`\`\`
+<p>Suppose:</p>
 
-Greedy decoding chooses:
+<table>
+  <thead>
+    <tr>
+      <th align="left">Token</th>
+      <th align="right">Probability</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><code>A</code></td>
+      <td align="right">0.60</td>
+    </tr>
+    <tr>
+      <td><code>B</code></td>
+      <td align="right">0.25</td>
+    </tr>
+    <tr>
+      <td><code>C</code></td>
+      <td align="right">0.10</td>
+    </tr>
+    <tr>
+      <td><code>D</code></td>
+      <td align="right">0.05</td>
+    </tr>
+  </tbody>
+</table>
+
+<p>Greedy decoding chooses:</p>
 
 $$x_{t+1}=A$$
 
-because:
+<p>because:</p>
 
 $$0.60$$
 
-is the largest probability.
+<p>is the largest probability.</p>
 
-There is no random sampling involved.
+<p>There is no random sampling involved.</p>
 
 ---
 
@@ -219,39 +260,33 @@ $$z_i > z_j$$
 Softmax is monotonic with respect to the logits, so:
 
 $$
-P(i \mid x_{\le t})
->
-P(j \mid x_{\le t})
+P(i \mid x_{\le t}) > P(j \mid x_{\le t})
 $$
 
 Therefore:
 
 $$
-\underset{i}{\operatorname{argmax}}
-\;
-z_i
-=
-\underset{i}{\operatorname{argmax}}
-\;
-P(i \mid x_{\le t})
+\mathop{\text{argmax}}_i z_i = \mathop{\text{argmax}}_i P(i \vert x_{\le t})
 $$
 
 So if the only goal is to find the highest-scoring token, the implementation can choose the maximum logit directly.
 
 For example:
 
-\`\`\`text
-Logits:
-A → 5.0
-B → 3.0
-C → 1.0
+<!-- GitHub-styled Core Concept Block -->
+<p>Logits:</p>
+<ul>
+  <li><code>A</code> &rarr; 5.0</li>
+  <li><code>B</code> &rarr; 3.0</li>
+  <li><code>C</code> &rarr; 1.0</li>
+</ul>
 
-Highest logit:
-A
+<p>Highest logit:</p>
+<p><code>A</code></p>
 
-Softmax would preserve the same ranking,
-so greedy decoding still chooses A.
-\`\`\`
+<p>Softmax would preserve the same ranking,<br />
+so greedy decoding still chooses <code>A</code>.</p>
+
 
 ### Why is this useful?
 
@@ -279,17 +314,19 @@ There is no random draw.
 
 So conceptually:
 
-\`\`\`text
-same context
-+
-same model
-+
-same logits
-+
-greedy decoding
-        ↓
-same selected token
-\`\`\`
+<!-- GitHub-styled Flowchart -->
+<blockquote>
+  <p>same context<br />
+  +<br />
+  same model<br />
+  +<br />
+  same logits<br />
+  +<br />
+  greedy decoding<br />
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+  same selected token</p>
+</blockquote>
+
 
 ### Important practical nuance
 
@@ -352,19 +389,13 @@ $$A \rightarrow C$$
 with probability:
 
 $$
-P(A,C)
-=
-P(A)P(C \mid A)
+P(A,C) = P(A)P(C \mid A)
 $$
 
 Therefore:
 
 $$
-P(A,C)
-=
-0.55 \times 0.51
-=
-0.2805
+P(A,C) = 0.55 \times 0.51 = 0.2805
 $$
 
 But the alternative sequence:
@@ -374,19 +405,13 @@ $$B \rightarrow C$$
 has probability:
 
 $$
-P(B,C)
-=
-P(B)P(C \mid B)
+P(B,C) = P(B)P(C \mid B)
 $$
 
 which gives:
 
 $$
-P(B,C)
-=
-0.45 \times 0.90
-=
-0.405
+P(B,C) = 0.45 \times 0.90 = 0.405
 $$
 
 So:
@@ -436,10 +461,7 @@ $$
 conditioned on prompt $x$, we have:
 
 $$
-P(y_1, \ldots, y_T \mid x)
-=
-\prod_{t=1}^{T}
-P(y_t \mid x, y_{<t})
+P(y_1, \ldots, y_T \mid x) = \prod_{t=1}^{T} P(y_t \mid x, y_{\lt t})
 $$
 
 So the probability of the full sequence depends on every token decision.
@@ -447,11 +469,9 @@ So the probability of the full sequence depends on every token decision.
 For numerical stability, sequence scores are often expressed using log probabilities:
 
 $$
-\log P(y_1, \ldots, y_T \mid x)
-=
-\sum_{t=1}^{T}
-\log P(y_t \mid x, y_{<t})
+\log P(y_1, \ldots, y_T \mid x) = \sum_{t=1}^{T} \log P(y_t \mid x, y_{\lt t})
 $$
+
 
 because multiplying many probabilities can produce extremely small numbers.
 
