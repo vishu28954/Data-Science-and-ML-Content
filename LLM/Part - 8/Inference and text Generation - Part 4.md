@@ -9,15 +9,22 @@ This note continues directly from Part 3.
 
 At the end of the KV Cache lesson, we had reached this point:
 
-\`\`\`text
-Prompt is processed
-        ↓
-KV Cache makes repeated decode efficient
-        ↓
-Transformer produces logits for the next token
-        ↓
-But which token should actually be chosen?
-\`\`\`
+<h3>🧠 The Next-Token Selection Process</h3>
+
+<dl>
+  <dt><b>1. Prompt Processing</b></dt>
+  <dd>The model processes the input prompt and creates an initial hidden state.</dd>
+  <dt><b>2. KV Caching</b></dt>
+  <dd>Key-Value (KV) caching stores past token keys/values, making repeated decode steps highly efficient.</dd>
+  <dt><b>3. Logit Generation</b></dt>
+  <dd>The Transformer network processes the cache to produce raw scores (logits) for the next possible token.</dd>
+</dl>
+
+<hr />
+
+<h4>❓ The Core Question</h4>
+<p><i>But which token should actually be chosen?</i></p>
+
 
 This creates a new problem.
 
@@ -39,34 +46,69 @@ That leads to **Temperature**.
 
 The story of this part is:
 
-\`\`\`text
-Transformer produces logits
-        ↓
-Convert logits into a next-token distribution
-        ↓
-Simplest choice:
-pick the maximum
-        ↓
-GREEDY DECODING
-        ↓
-Deterministic and simple
-        ↓
-But local maximum is not necessarily the best complete sequence
-        ↓
-What if we want controlled randomness?
-        ↓
-Reshape the probability distribution
-        ↓
-TEMPERATURE
-        ↓
-Low temperature → sharper distribution
-High temperature → flatter distribution
-        ↓
-But temperature still does not decide which subset of tokens is allowed
-        ↓
-Next topics:
-Top-k and Top-p sampling
-\`\`\`
+<!-- GitHub-styled Flowchart & Notes -->
+<div align="left">
+  <h1>Decoding Strategies Overview</h1>
+</div>
+
+<hr />
+
+```mermaid
+graph TD
+    A[Transformer produces logits] --> B[Convert logits into a next-token distribution]
+    B --> C[Simplest choice: pick the maximum]
+    C --> D[GREEDY DECODING]
+    D --> E[Deterministic and simple]
+    E --> F[But local maximum is not necessarily the best complete sequence]
+    F --> G[What if we want controlled randomness?]
+    G --> H[Reshape the probability distribution]
+    H --> I[TEMPERATURE]
+    I --> J[Low temperature → sharper distribution]
+    I --> K[High temperature → flatter distribution]
+    J --> L[But temperature still does not decide which subset of tokens is allowed]
+    K --> L
+    L --> M[Next topics: Top-k and Top-p sampling]
+
+    classDef default fill:#f6f8fa,stroke:#d0d7de,stroke-width:1px,color:#24292f;
+    classDef header fill:#ddf4ff,stroke:#0969da,stroke-width:1.5px,color:#0969da;
+    class A,D,I,M header;
+```
+
+<hr />
+
+<ul>
+  <li><strong>Transformer produces logits</strong></li>
+  <li>Convert logits into a next-token distribution
+    <ul>
+      <li>Simplest choice: pick the maximum
+        <ul>
+          <li><strong>GREEDY DECODING</strong>
+            <ul>
+              <li>Deterministic and simple</li>
+              <li>But local maximum is not necessarily the best complete sequence</li>
+            </ul>
+          </li>
+        </ul>
+      </li>
+      <li>What if we want controlled randomness?
+        <ul>
+          <li>Reshape the probability distribution
+            <ul>
+              <li><strong>TEMPERATURE</strong>
+                <ul>
+                  <li>Low temperature → sharper distribution</li>
+                  <li>High temperature → flatter distribution</li>
+                </ul>
+              </li>
+            </ul>
+          </li>
+          <li>But temperature still does not decide which subset of tokens is allowed</li>
+        </ul>
+      </li>
+    </ul>
+  </li>
+  <li><strong>Next topics: Top-k and Top-p sampling</strong></li>
+</ul>
 
 ---
 
