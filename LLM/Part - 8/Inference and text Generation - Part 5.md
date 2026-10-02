@@ -83,18 +83,15 @@ $$
 Then define the filtered distribution:
 
 $$
-P_k(i)=
-\begin{cases}
-\displaystyle\frac{p_i}{Z_k}, & i\in S_k\\[8pt]
-0, & i\notin S_k
-\end{cases}
+P_k(i) = \begin{cases} \frac{p_i}{Z_k}, & i \in S_k \\ 0, & i \notin S_k \end{cases}
 $$
 
 Finally, sample:
 
 $$
-x_{t+1}\sim\operatorname{Categorical}(P_k)
+x_{t+1} \sim \mathop{\text{Categorical}}(P_k)
 $$
+
 
 ### Why do we need renormalization?
 
@@ -254,14 +251,17 @@ We do not try to reach *exactly* 0.80; entire tokens must be included. The first
 Sort the probability distribution:
 
 $$
-p_{(1)}\ge p_{(2)}\ge\cdots\ge p_{(|\mathcal{V}|)}
+p_{(1)} \ge p_{(2)} \ge \cdots \ge p_{( \vert \mathcal{V} \vert )}
 $$
+
 
 For $0<p\le1$, choose the smallest integer $m$ satisfying:
 
 $$
-m=\min\left\{r:\sum_{i=1}^{r}p_{(i)}\ge p\right\}
+m = \min \left\lbrace r : \sum_{i=1}^{r} p_{(i)} \ge p \right\rbrace
 $$
+
+
 
 The nucleus is the set of the first $m$ ranked tokens:
 
@@ -278,18 +278,19 @@ $$
 The filtered distribution is:
 
 $$
-P_p(i)=
+P_p(i) =
 \begin{cases}
-\displaystyle\frac{p_i}{Z_p}, & i\in S_p\\[8pt]
-0, & i\notin S_p
+\frac{p_i}{Z_p}, & i \in S_p \\
+0, & i \notin S_p
 \end{cases}
 $$
 
 Then:
 
 $$
-x_{t+1}\sim\operatorname{Categorical}(P_p)
+x_{t+1} \sim \mathop{\text{Categorical}}(P_p)
 $$
+
 
 ### Why do we need this mathematics?
 
