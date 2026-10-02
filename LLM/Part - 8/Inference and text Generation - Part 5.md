@@ -482,6 +482,214 @@ Optimized top-k can avoid fully sorting the vocabulary. Top-p implementations re
 
 ---
 
+---
+
+# Worked Example — Temperature, Top-k and Top-p Together
+
+This example connects both topics by following **one next-token distribution from beginning to end**. It also shows why the order of candidate filters can matter.
+
+## Step 1 — Start with the next-token probabilities
+
+Suppose the Transformer has finished one forward pass and, after softmax at **temperature $T=1$**, its next-token distribution is:
+
+| Token | Original probability |
+|---|---:|
+| A | 0.40 |
+| B | 0.30 |
+| C | 0.15 |
+| D | 0.10 |
+| E | 0.05 |
+| **Total** | **1.00** |
+
+We will use the same settings throughout:
+
+$
+T=1,\qquad k=3,\qquad p=0.80
+$
+
+Temperature $T=1$ leaves the original softmax distribution unchanged. This isolates the effect of the two filters. We will first apply **top-k, then top-p**, and then reverse their order.
+
+## Step 2 — Apply top-k with k = 3
+
+Keep the three highest-probability tokens:
+
+$
+S_k=\{A,B,C\}
+$
+
+The retained mass is:
+
+$
+Z_k=0.40+0.30+0.15=0.85
+$
+
+After renormalization:
+
+$
+P_k(A)=\frac{0.40}{0.85}=\frac{8}{17}\approx0.4706
+$
+
+$
+P_k(B)=\frac{0.30}{0.85}=\frac{6}{17}\approx0.3529
+$
+
+$
+P_k(C)=\frac{0.15}{0.85}=\frac{3}{17}\approx0.1765
+$
+
+So the distribution is now:
+
+| Token | After top-k |
+|---|---:|
+| A | 0.4706 |
+| B | 0.3529 |
+| C | 0.1765 |
+| D | 0 |
+| E | 0 |
+
+Notice that top-k has **changed the numerical probabilities** by renormalizing the retained mass.
+
+## Step 3 — Apply top-p = 0.80 to the top-k distribution
+
+Top-p now sees the **renormalized distribution from Step 2**, not the original distribution.
+
+Accumulate probabilities in descending order:
+
+| Token | Current probability | Cumulative mass |
+|---|---:|---:|
+| A | 0.4706 | 0.4706 |
+| B | 0.3529 | 0.8235 |
+| C | 0.1765 | 1.0000 |
+
+The first token does not reach 0.80, but the first two do:
+
+$
+P_k(A)+P_k(B)=\frac{14}{17}\approx0.8235\ge0.80
+$
+
+So top-p keeps only:
+
+$
+S_p=\{A,B\}
+$
+
+Renormalize again. Because A and B originally had probability 0.40 and 0.30, their final relative proportions are:
+
+$
+P_{\text{final}}(A)=\frac{0.40}{0.40+0.30}=\frac47\approx0.5714
+$
+
+$
+P_{\text{final}}(B)=\frac{0.30}{0.40+0.30}=\frac37\approx0.4286
+$
+
+The final sampling distribution is:
+
+$
+P_{\text{final}}=[0.5714,\;0.4286,\;0,\;0,\;0]
+$
+
+**Top-k followed by top-p has left only two eligible tokens.**
+
+## Step 4 — Sample one token
+
+Suppose we illustrate categorical sampling by drawing:
+
+$
+u=0.55
+$
+
+from a uniform distribution on $[0,1)$.
+
+The final cumulative intervals are:
+
+~~~text
+A: [0.0000, 0.5714)
+B: [0.5714, 1.0000)
+~~~
+
+The draw lies in A's interval, so this illustrative sampling step selects **A**.
+
+The selected token is appended to the sequence. The model then runs another decode forward pass to compute a **new** next-token distribution. It does not reuse the current distribution for the following token.
+
+## Step 5 — What changes if we reverse the filter order?
+
+Reset to the **original** distribution and apply **top-p first**, still with $p=0.80$.
+
+Its cumulative mass is:
+
+| Token | Original probability | Cumulative mass |
+|---|---:|---:|
+| A | 0.40 | 0.40 |
+| B | 0.30 | 0.70 |
+| C | 0.15 | 0.85 |
+| D | 0.10 | 0.95 |
+| E | 0.05 | 1.00 |
+
+The smallest prefix reaching 0.80 is:
+
+$
+S_p=\{A,B,C\}
+$
+
+Its retained mass is 0.85. Renormalization gives:
+
+$
+P_p=[0.4706,\;0.3529,\;0.1765,\;0,\;0]
+$
+
+Now apply **top-k with $k=3$**. All three currently eligible tokens survive, so the distribution stays the same:
+
+$
+P_{\text{reverse}}=[0.4706,\;0.3529,\;0.1765,\;0,\;0]
+$
+
+Using the same illustrative draw:
+
+$
+u=0.55
+$
+
+the draw now falls in B's cumulative interval:
+
+~~~text
+A: [0.0000, 0.4706)
+B: [0.4706, 0.8235)
+C: [0.8235, 1.0000)
+~~~
+
+So the reverse order selects **B**, not A, for this particular shared draw.
+
+## Step 6 — Compare the outcomes
+
+| Operation order | A | B | C | D | E |
+|---|---:|---:|---:|---:|---:|
+| Top-k 3, then top-p 0.80 | 0.5714 | 0.4286 | 0 | 0 | 0 |
+| Top-p 0.80, then top-k 3 | 0.4706 | 0.3529 | 0.1765 | 0 | 0 |
+
+Both orders use the **same original distribution** and **same settings**, but produce different final sampling distributions.
+
+Why? Because top-p's cumulative threshold is calculated on the distribution it receives. If top-k renormalizes that distribution first, top-p can reach its threshold with fewer candidates.
+
+**Implementation note:** This is a conceptual example of sequential filtering with renormalization between stages. In real inference libraries, the order of logit processors, masking, temperature, and top-p calculation is implementation-dependent; inspect the library rather than assuming one universal order.
+
+### Final mental model
+
+~~~text
+Temperature → controls relative probability concentration
+
+Top-k → keeps a fixed number of highest-ranked tokens
+
+Top-p → keeps enough tokens to cross a probability threshold
+
+Renormalization → restores total probability to one
+
+Sampling → draws one eligible token
+
+New forward pass → produces a new distribution for the next token
+~~~
+
+
 # Top-k vs Top-p — Final Comparison
 
 | Property | Top-k | Top-p / Nucleus |
