@@ -615,37 +615,33 @@ It does not ask:
 
 Suppose the next-token distribution is:
 
-\`\`\`text
-A → 0.60
-B → 0.25
-C → 0.10
-D → 0.05
-\`\`\`
+<!-- GitHub-styled Step-by-Step Flow -->
+<p>A &rarr; 0.60<br />
+B &rarr; 0.25<br />
+C &rarr; 0.10<br />
+D &rarr; 0.05</p>
 
-Greedy decoding simply does:
+<p>Greedy decoding simply does:</p>
 
-\`\`\`text
-find maximum
-        ↓
-A = 0.60
-        ↓
-select A
-        ↓
-append A to context
-        ↓
-run next decode step
-        ↓
-repeat
-\`\`\`
+<blockquote>
+  <p>find maximum<br />
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+  A = 0.60<br />
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+  select A<br />
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+  append A to context<br />
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+  run next decode step<br />
+  &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+  repeat</p>
+</blockquote>
+
 
 Mathematically:
 
 $$
-x_{t+1}
-=
-\underset{i}{\operatorname{argmax}}
-\;
-P(i \mid x_{\le t})
+x_{t+1} = \arg\max_i P(i \mid x_{\le t})
 $$
 
 Memory line:
@@ -658,19 +654,23 @@ Memory line:
 
 Greedy decoding gives us one extreme:
 
-\`\`\`text
-always choose the maximum
-→ completely deterministic token selection
-\`\`\`
+<!-- GitHub-styled Core Concept Block -->
+<p>
+  <code>always choose the maximum</code><br />
+  &rarr; <code>completely deterministic token selection</code>
+</p>
 
-But imagine the model produces:
+<p>But imagine the model produces:</p>
 
-\`\`\`text
-Token A → 0.40
-Token B → 0.35
-Token C → 0.20
-Token D → 0.05
-\`\`\`
+<blockquote>
+  <p>
+    Token A &rarr; 0.40<br />
+    Token B &rarr; 0.35<br />
+    Token C &rarr; 0.20<br />
+    Token D &rarr; 0.05
+  </p>
+</blockquote>
+
 
 Greedy decoding always chooses:
 
@@ -707,13 +707,7 @@ $$
 then temperature-adjusted probabilities are:
 
 $$
-P_T(i)
-=
-\frac{
-e^{z_i/T}
-}{
-\sum_{j=1}^{|\mathcal{V}|} e^{z_j/T}
-}
+P_T(i) = \frac{ e^{z_i/T}}{\sum_{j=1}^{|\mathcal{V}|} e^{z_j/T}}
 $$
 
 where:
@@ -759,9 +753,7 @@ $$T=0.5$$
 we get:
 
 $$
-\frac{z_i}{0.5}
-=
-2z_i
+\frac{z_i}{0.5} = 2z_i
 $$
 
 So logit gaps become larger.
@@ -790,18 +782,24 @@ Softmax becomes flatter.
 
 Therefore:
 
-\`\`\`text
-T < 1
-→ enlarge logit differences
-→ sharper probability distribution
+<!-- GitHub-styled Core Concept Block -->
+<blockquote>
+  <p>
+    <strong><code>T &lt; 1</code></strong><br />
+    &rarr; enlarge logit differences<br />
+    &rarr; sharper probability distribution
+  </p>
+  <p>
+    <strong><code>T = 1</code></strong><br />
+    &rarr; original softmax distribution
+  </p>
+  <p>
+    <strong><code>T &gt; 1</code></strong><br />
+    &rarr; shrink logit differences<br />
+    &rarr; flatter probability distribution
+  </p>
+</blockquote>
 
-T = 1
-→ original softmax distribution
-
-T > 1
-→ shrink logit differences
-→ flatter probability distribution
-\`\`\`
 
 ---
 
@@ -824,9 +822,7 @@ $$T=1$$
 the probabilities are approximately:
 
 $$
-P_{T=1}
-\approx
-[0.8438,\;0.1142,\;0.0420]
+P_{T=1} \approx [0.8438,\;0.1142,\;0.0420]
 $$
 
 The first token is strongly preferred.
@@ -840,17 +836,13 @@ $$T=0.5$$
 so the scaled logits are:
 
 $$
-\frac{z}{T}
-=
-[8,4,2]
+\frac{z}{T} = [8,4,2]
 $$
 
 The probabilities become approximately:
 
 $$
-P_{T=0.5}
-\approx
-[0.9796,\;0.0179,\;0.0024]
+P_{T=0.5} \approx [0.9796,\;0.0179,\;0.0024]
 $$
 
 The distribution becomes extremely sharp.
@@ -864,17 +856,13 @@ $$T=2$$
 so:
 
 $$
-\frac{z}{T}
-=
-[2,1,0.5]
+\frac{z}{T} = [2,1,0.5]
 $$
 
 The probabilities become approximately:
 
 $$
-P_{T=2}
-\approx
-[0.6285,\;0.2312,\;0.1402]
+P_{T=2} \approx [0.6285,\;0.2312,\;0.1402]
 $$
 
 The distribution is much flatter.
@@ -898,20 +886,13 @@ Look at the probability ratio between two tokens $i$ and $j$.
 Under temperature:
 
 $$
-\frac{P_T(i)}{P_T(j)}
-=
-e^{(z_i-z_j)/T}
+\frac{P_T(i)}{P_T(j)} = e^{(z_i-z_j)/T}
 $$
 
 Taking the natural logarithm:
 
 $$
-\log
-\left(
-\frac{P_T(i)}{P_T(j)}
-\right)
-=
-\frac{z_i-z_j}{T}
+\log \left( \frac{P_T(i)}{P_T(j)} \right) = \frac{z_i-z_j}{T}
 $$
 
 This equation is extremely useful.
@@ -927,21 +908,13 @@ $$
 ### At temperature 0.5
 
 $$
-\frac{z_i-z_j}{T}
-=
-\frac{2}{0.5}
-=
-4
+\frac{z_i-z_j}{T} = \frac{2}{0.5} = 4
 $$
 
 So:
 
 $$
-\frac{P_T(i)}{P_T(j)}
-=
-e^4
-\approx
-54.6
+\frac{P_T(i)}{P_T(j)} = e^4 \approx 54.6
 $$
 
 Token $i$ is roughly 54.6 times as probable as token $j$.
@@ -949,38 +922,35 @@ Token $i$ is roughly 54.6 times as probable as token $j$.
 ### At temperature 1
 
 $$
-\frac{P_T(i)}{P_T(j)}
-=
-e^2
-\approx
-7.39
+\frac{P_T(i)}{P_T(j)} = e^2 \approx 7.39
 $$
 
 ### At temperature 2
 
 $$
-\frac{P_T(i)}{P_T(j)}
-=
-e^1
-\approx
-2.72
+\frac{P_T(i)}{P_T(j)} = e^1 \approx 2.72
 $$
 
 So:
 
-\`\`\`text
-same model
-same logits
-same ranking
+<!-- GitHub-styled Core Concept Block -->
+<blockquote>
+  <p>
+    same model<br />
+    same logits<br />
+    same ranking
+  </p>
+  <p>but</p>
+  <p>
+    <strong><code>lower T</code></strong><br />
+    &rarr; stronger preference
+  </p>
+  <p>
+    <strong><code>higher T</code></strong><br />
+    &rarr; weaker preference
+  </p>
+</blockquote>
 
-but
-
-lower T
-→ stronger preference
-
-higher T
-→ weaker preference
-\`\`\`
 
 This is the mathematical heart of temperature.
 
@@ -1001,9 +971,7 @@ $$z_i>z_j$$
 then:
 
 $$
-\frac{z_i}{T}
->
-\frac{z_j}{T}
+\frac{z_i}{T} > \frac{z_j}{T}
 $$
 
 because division by a positive number preserves ordering.
@@ -1013,14 +981,9 @@ Therefore the rank of the logits does not change.
 So:
 
 $$
-\underset{i}{\operatorname{argmax}}
-\;
-z_i
-=
-\underset{i}{\operatorname{argmax}}
-\;
-\frac{z_i}{T}
+\arg\max_i z_i = \arg\max_i \frac{z_i}{T}
 $$
+
 
 for:
 
@@ -1059,13 +1022,17 @@ Temperature controls how concentrated that distribution is.
 
 So:
 
-\`\`\`text
-temperature
-→ reshapes probabilities
-
-sampling
-→ actually chooses a random token according to those probabilities
-\`\`\`
+<!-- GitHub-styled Core Concept Block -->
+<blockquote>
+  <p>
+    <strong><code>temperature</code></strong><br />
+    &rarr; reshapes probabilities
+  </p>
+  <p>
+    <strong><code>sampling</code></strong><br />
+    &rarr; actually chooses a random token according to those probabilities
+  </p>
+</blockquote>
 
 This distinction is essential.
 
@@ -1076,13 +1043,7 @@ This distinction is essential.
 Consider:
 
 $$
-P_T(i)
-=
-\frac{
-e^{z_i/T}
-}{
-\sum_j e^{z_j/T}
-}
+P_T(i) = \frac{ e^{z_i/T} }{ \sum_j e^{z_j/T}}
 $$
 
 As:
@@ -1103,10 +1064,14 @@ $$0$$
 
 So in the limit:
 
-\`\`\`text
-T → 0+
-→ distribution approaches greedy behavior
-\`\`\`
+<!-- GitHub-styled Core Concept Block -->
+<blockquote>
+  <p>
+    <strong><code>T &rarr; 0+</code></strong><br />
+    &rarr; distribution approaches greedy behavior
+  </p>
+</blockquote>
+
 
 ### Important mathematical edge case
 
@@ -1216,12 +1181,16 @@ So very high temperature approaches a uniform distribution over the available fi
 
 Conceptually:
 
-\`\`\`text
-very high T
-→ model preferences become weak
-→ even low-scoring tokens receive substantial probability
-→ generation can become incoherent
-\`\`\`
+<!-- GitHub-styled Core Concept Block -->
+<blockquote>
+  <p>
+    <strong><code>very high T</code></strong><br />
+    &rarr; model preferences become weak<br />
+    &rarr; even low-scoring tokens receive substantial probability<br />
+    &rarr; generation can become incoherent
+  </p>
+</blockquote>
+
 
 ---
 
@@ -1252,12 +1221,16 @@ So:
 
 Suppose the model assigns:
 
-\`\`\`text
-A → high probability
-B → moderately high probability
-C → somewhat plausible
-D → low probability
-\`\`\`
+<!-- GitHub-styled Core Concept Block -->
+<blockquote>
+  <p>
+    <code>A</code> &rarr; high probability<br />
+    <code>B</code> &rarr; moderately high probability<br />
+    <code>C</code> &rarr; somewhat plausible<br />
+    <code>D</code> &rarr; low probability
+  </p>
+</blockquote>
+
 
 At low temperature, the probability gap between $A$ and the others increases.
 
@@ -1289,12 +1262,16 @@ But it also increases the chance of selecting weak or implausible tokens.
 
 So:
 
-\`\`\`text
-higher temperature
-→ more diversity
-→ more exploration
-→ greater chance of low-probability choices
-\`\`\`
+<!-- GitHub-styled Core Concept Block -->
+<blockquote>
+  <p>
+    <strong><code>higher temperature</code></strong><br />
+    &rarr; more diversity<br />
+    &rarr; more exploration<br />
+    &rarr; greater chance of low-probability choices
+  </p>
+</blockquote>
+
 
 Again, temperature is not a direct factuality control.
 
@@ -1307,10 +1284,7 @@ It changes the distribution from which token choices are made.
 Suppose the original probabilities at temperature 1 are:
 
 $$
-P_1(i)
-=
-\frac{e^{z_i}}
-{\sum_j e^{z_j}}
+P_1(i) = \frac{e^{z_i}} {\sum_j e^{z_j}}
 $$
 
 Temperature transformation can also be understood conceptually as raising the original probabilities to the power:
@@ -1322,13 +1296,7 @@ $$
 and renormalizing:
 
 $$
-P_T(i)
-=
-\frac{
-P_1(i)^{1/T}
-}{
-\sum_j P_1(j)^{1/T}
-}
+P_T(i) = \frac{P_1(i)^{1/T}}{\sum_j P_1(j)^{1/T}}
 $$
 
 This gives another intuitive view.
@@ -1376,22 +1344,13 @@ A numerically stable form subtracts the maximum logit before exponentiation.
 Let:
 
 $$
-z_{\max}
-=
-\max_j z_j
+z_{\max} = \max_j z_j
 $$
 
 Then:
 
 $$
-P_T(i)
-=
-\frac{
-\exp\left((z_i-z_{\max})/T\right)
-}{
-\sum_j
-\exp\left((z_j-z_{\max})/T\right)
-}
+P_T(i) = \frac{\exp\left((z_i-z_{\max})/T\right)}{\sum_j\exp\left((z_j-z_{\max})/T\right)}
 $$
 
 Subtracting the same constant from every logit does not change softmax probabilities.
@@ -1401,17 +1360,7 @@ Why?
 Because:
 
 $$
-\frac{
-e^{(z_i-c)/T}
-}{
-\sum_j e^{(z_j-c)/T}
-}
-=
-\frac{
-e^{z_i/T}e^{-c/T}
-}{
-e^{-c/T}\sum_j e^{z_j/T}
-}
+\frac{e^{(z_i-c)/T}}{\sum_j e^{(z_j-c)/T}}=\frac{e^{z_i/T}e^{-c/T}}{e^{-c/T}\sum_j e^{z_j/T}}
 $$
 
 The common factor:
@@ -1437,17 +1386,13 @@ because it is forbidden.
 For any positive finite temperature:
 
 $$
-\frac{-\infty}{T}
-=
--\infty
+\frac{-\infty}{T} = -\infty
 $$
 
 and:
 
 $$
-e^{-\infty}
-=
-0
+e^{-\infty} = 0
 $$
 
 So its probability remains zero.
@@ -1513,51 +1458,52 @@ $$
 
 Think of temperature as a **contrast control for logits**.
 
-\`\`\`text
-Low temperature
+<!-- GitHub-styled Core Concept Block -->
+<div align="left">
+  <h3>📉 Low Temperature</h3>
+</div>
 
-[4, 2, 1]
-     ↓ divide by 0.5
-[8, 4, 2]
-     ↓
-differences become larger
-     ↓
-softmax becomes sharper
-\`\`\`
+<blockquote>
+  <p>
+    <code>[4, 2, 1]</code><br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr; divide by 0.5<br />
+    <code>[8, 4, 2]</code><br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+    differences become larger<br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+    softmax becomes sharper
+  </p>
+</blockquote>
 
-\`\`\`text
-High temperature
+<hr />
 
-[4, 2, 1]
-     ↓ divide by 2
-[2, 1, 0.5]
-     ↓
-differences become smaller
-     ↓
-softmax becomes flatter
-\`\`\`
+<div align="left">
+  <h3>📈 High Temperature</h3>
+</div>
+
+<blockquote>
+  <p>
+    <code>[4, 2, 1]</code><br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr; divide by 2<br />
+    <code>[2, 1, 0.5]</code><br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+    differences become smaller<br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+    softmax becomes flatter
+  </p>
+</blockquote>
+
 
 The mathematical core is:
 
 $$
-P_T(i)
-=
-\frac{
-e^{z_i/T}
-}{
-\sum_j e^{z_j/T}
-}
+P_T(i) = \frac{ e^{z_i/T} }{\sum_j e^{z_j/T}}
 $$
 
 and the deepest intuition is captured by:
 
 $$
-\log
-\left(
-\frac{P_T(i)}{P_T(j)}
-\right)
-=
-\frac{z_i-z_j}{T}
+\log\left(\frac{P_T(i)}{P_T(j)}\right)=\frac{z_i-z_j}{T}
 $$
 
 Memory line:
@@ -1572,7 +1518,7 @@ Memory line:
 |---|---|---|
 | Main purpose | Select the highest-scoring token | Reshape the token probability distribution |
 | Randomness | None in the rule itself | None by itself; randomness comes from sampling |
-| Core mathematics | $\underset{i}{\operatorname{argmax}}\;P(i \mid x_{\le t})$ | $P_T(i)=\frac{e^{z_i/T}}{\sum_j e^{z_j/T}}$ |
+| Core mathematics | $\arg\max_i P(i \vert x_{\le t})$ | $P_T(i)=\frac{e^{z_i/T}}{\sum_j e^{z_j/T}}$|
 | Effect on ranking | Selects the top-ranked token | Positive $T$ preserves ranking |
 | Low value behavior | Not applicable | Sharper distribution |
 | High value behavior | Not applicable | Flatter distribution |
@@ -1622,89 +1568,75 @@ That gives us:
 
 The story of Part 4 is:
 
-\`\`\`text
-Transformer produces next-token logits
-        ↓
-Need to choose a token
-        ↓
-GREEDY DECODING
-        ↓
-choose the local maximum
-        ↓
-simple and deterministic
-        ↓
-but local maximum does not guarantee the best sequence
-        ↓
-allow alternative plausible tokens
-        ↓
-TEMPERATURE
-        ↓
-rescale logits before softmax
-        ↓
-low T → sharper
-high T → flatter
-        ↓
-temperature reshapes probabilities
-but does not itself perform sampling
-        ↓
-Next:
-Top-k and Top-p
-\`\`\`
+<!-- GitHub-styled Flowchart -->
+<blockquote>
+  <p>
+    Transformer produces next-token logits<br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+    Need to choose a token<br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+    <strong>GREEDY DECODING</strong><br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+    choose the local maximum<br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+    simple and deterministic<br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+    but local maximum does not guarantee the best sequence<br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+    allow alternative plausible tokens<br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+    <strong>TEMPERATURE</strong><br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+    rescale logits before softmax<br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+    low T &rarr; sharper<br />
+    high T &rarr; flatter<br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+    temperature reshapes probabilities<br />
+    but does not itself perform sampling<br />
+    &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&darr;<br />
+    <strong>Next:</strong><br />
+    Top-k and Top-p
+  </p>
+</blockquote>
+
 
 Core equations:
 
 ### Greedy selection
 
 $$
-x_{t+1}
-=
-\underset{i}{\operatorname{argmax}}
-\;
-P(i \mid x_{\le t})
+x_{t+1} = \arg\max_i P(i \mid x_{\le t})
 $$
+
 
 ### Sequence probability
 
 $$
-P(y_1, \ldots, y_T \mid x)
-=
-\prod_{t=1}^{T}
-P(y_t \mid x, y_{<t})
+P(y_1, \ldots, y_T \mid x) = \prod_{t=1}^{T} P(y_t \mid x, y_{\lt t})
 $$
+
 
 ### Temperature-scaled softmax
 
 $$
-P_T(i)
-=
-\frac{
-e^{z_i/T}
-}{
-\sum_j e^{z_j/T}
-}
+P_T(i) = \frac{e^{\frac{z_i}{T}}}{\sum_j e^{\frac{z_j}{T}}}
 $$
+
 
 ### Temperature log-odds relationship
 
 $$
-\log
-\left(
-\frac{P_T(i)}{P_T(j)}
-\right)
-=
-\frac{z_i-z_j}{T}
+\log \left( \frac{P_T(i)}{P_T(j)} \right) = \frac{z_i - z_j}{T}
 $$
+
 
 ### Temperature limits
 
 For a unique maximum logit:
 
 $$
-T \rightarrow 0^+
-\quad
-\Rightarrow
-\quad
-\text{distribution approaches greedy selection}
+T \rightarrow 0^+ \quad \Rightarrow \quad \text{distribution approaches greedy selection}
 $$
 
 For finite unmasked logits:
@@ -1719,7 +1651,11 @@ $$
 
 The next detailed-study block is:
 
-\`\`\`text
-8.8 Top-k Sampling
-8.9 Top-p / Nucleus Sampling
-\`\`\`
+<!-- GitHub-styled Core Concept Block -->
+<blockquote>
+  <p>
+    <strong>8.8 Top-k Sampling</strong><br />
+    <strong>8.9 Top-p / Nucleus Sampling</strong>
+  </p>
+</blockquote>
+
