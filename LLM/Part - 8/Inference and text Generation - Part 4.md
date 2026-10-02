@@ -491,9 +491,9 @@ It can.
 
 Suppose a particular continuation reinforces a pattern such as:
 
-\`\`\`text
-very very very very ...
-\`\`\`
+<!-- GitHub-styled Code Block -->
+<pre><code>very very very very ...</code></pre>
+
 
 At each step, the repeated token may continue to receive the highest probability.
 
@@ -575,23 +575,31 @@ This becomes important for:
 
 ### Strengths
 
-\`\`\`text
-simple
-deterministic
-no sampling randomness
-cheap token-selection rule
-easy to reproduce conceptually
-\`\`\`
+<!-- GitHub-styled Comparison Card -->
+<div align="left">
+  <h3>⚡ Characteristics</h3>
+</div>
 
-### Weaknesses
+<ul>
+  <li><code>simple</code></li>
+  <li><code>deterministic</code></li>
+  <li><code>no sampling randomness</code></li>
+  <li><code>cheap token-selection rule</code></li>
+  <li><code>easy to reproduce conceptually</code></li>
+</ul>
 
-\`\`\`text
-locally optimal only
-can miss better future sequences
-no diversity
-can become trapped in repetitive continuations
-often too rigid for open-ended generation
-\`\`\`
+<div align="left">
+  <h3>⚠️ Weaknesses</h3>
+</div>
+
+<ul>
+  <li><code>locally optimal only</code></li>
+  <li><code>can miss better future sequences</code></li>
+  <li><code>no diversity</code></li>
+  <li><code>can become trapped in repetitive continuations</code></li>
+  <li><code>often too rigid for open-ended generation</code></li>
+</ul>
+
 
 The key mental model is:
 
