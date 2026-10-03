@@ -516,6 +516,382 @@ $$
 
 When comparing completed outputs of different lengths, this creates a tendency for raw sequence likelihood to favor shorter possibilities, depending on EOS probabilities and stopping rules.
 
+
+The fundamental reason is that **every additional token introduces another conditional probability factor, and that factor cannot exceed 1**.
+
+Consequently, extending a particular sequence can never increase its raw sequence probability. This can create a preference for shorter completed sequences when beam search compares outputs of different lengths using their cumulative log probabilities.
+
+Let's derive this step by step.
+
+### 1. Why does generating another token reduce cumulative probability?
+
+Suppose the prompt is:
+
+`I want to`
+
+The model predicts the following next-token probabilities:
+
+| Next token | Probability |
+|---|---:|
+| travel | 0.60 |
+| learn | 0.30 |
+| sleep | 0.10 |
+
+Suppose we choose `travel`.
+
+The cumulative probability of this one-token continuation is:
+
+$$
+P(\text{travel}\mid\text{prompt})=0.60
+$$
+
+Now suppose the model predicts:
+
+$$
+P(\text{abroad}\mid\text{prompt, travel})=0.80
+$$
+
+The probability of generating the entire sequence `travel abroad` is:
+
+$$
+P(\text{travel abroad}\mid\text{prompt}) = 0.60\times0.80 = 0.48
+$$
+
+Notice that the cumulative probability has decreased from **0.60 to 0.48**, even though `abroad` had a high conditional probability of 0.80.
+
+If the next token is `tomorrow`, with conditional probability 0.50:
+
+$$
+P(\text{travel abroad tomorrow}\mid\text{prompt}) = 0.60\times0.80\times0.50 = 0.24
+$$
+
+Our cumulative probabilities are now:
+
+| Generated continuation | Cumulative probability |
+|---|---:|
+| travel | 0.60 |
+| travel abroad | 0.48 |
+| travel abroad tomorrow | 0.24 |
+
+**Key observation:** Every new token multiplies the existing probability by a number between 0 and 1.
+
+Mathematically:
+
+$$
+0\le P(y_{t+1}\mid x,y_{1:t})\le1
+$$
+
+Therefore:
+
+$$
+P(y_{1:t+1}\mid x) = P(y_{1:t}\mid x) P(y_{t+1}\mid x,y_{1:t})
+$$
+
+And hence:
+
+$$
+P(y_{1:t+1}\mid x) \le P(y_{1:t}\mid x)
+$$
+
+Extending a particular prefix can never increase its raw probability.
+
+If the next token has probability exactly 1, the cumulative probability remains unchanged.
+
+---
+
+### 2. What happens when probabilities are converted into log scores?
+
+Beam search generally accumulates log probabilities rather than multiplying probabilities directly.
+
+The score of a partial sequence is:
+
+$$
+S(y_{1:t}) = \sum_{j=1}^{t} \log P(y_j \vert x, y_{\lt j})
+$$
+
+
+When another token is appended:
+
+$$
+S(y_{1:t+1}) = S(y_{1:t}) + \log P(y_{t+1}\mid x,y_{1:t})
+$$
+
+For probabilities between 0 and 1, their logarithms are negative:
+
+$$
+\log(0.80)\approx-0.223
+$$
+
+$$
+\log(0.50)\approx-0.693
+$$
+
+Consequently, every additional token usually adds another negative value to the accumulated log score.
+
+Consider our previous example:
+
+| Generated continuation | Cumulative probability | Approximate log score |
+|---|---:|---:|
+| travel | 0.60 | -0.511 |
+| travel abroad | 0.48 | -0.734 |
+| travel abroad tomorrow | 0.24 | -1.427 |
+
+For the first two tokens:
+
+$$
+S(\text{travel abroad}) = \log(0.60)+\log(0.80)
+$$
+
+$$
+=-0.511-0.223
+$$
+
+$$
+\approx-0.734
+$$
+
+For the third token:
+
+$$
+S(\text{travel abroad tomorrow}) = -0.734+\log(0.50)
+$$
+
+$$
+=-0.734-0.693
+$$
+
+$$
+\approx-1.427
+$$
+
+Thus:
+
+$$
+S(y_{1:t+1})\le S(y_{1:t})
+$$
+
+**Interpretation:** The longer the continuation becomes, the more negative its raw cumulative log score generally becomes.
+
+This is a property of extending the *same prefix*, not a guarantee that every short sequence scores higher than every long sequence.
+
+---
+
+### 3. How does this create a preference for shorter completed sequences?
+
+The important distinction is that beam search ultimately compares **different completed candidate sequences**, not merely successive prefixes.
+
+A sequence is typically considered completed when it generates the end-of-sequence token, or EOS.
+
+Consider two hypothetical completed outputs for the same prompt:
+
+**Candidate A — Shorter sequence**
+
+`travel EOS`
+
+Its conditional probabilities are:
+
+- `travel`: 0.60
+- `EOS` after `travel`: 0.40
+
+Its total sequence probability is:
+
+$$
+P(\text{travel,}\ \text{EOS} \vert x) = 0.60 \times 0.40 = 0.240
+$$
+
+
+**Candidate B — Longer sequence**
+
+`travel abroad tomorrow EOS`
+
+Suppose its conditional probabilities are:
+
+- `travel`: 0.60
+- `abroad` after `travel`: 0.50
+- `tomorrow` after `travel abroad`: 0.80
+- `EOS` after `travel abroad tomorrow`: 0.90
+
+Its total probability is:
+
+$$
+\begin{aligned}
+P(\text{travel,}\ \text{abroad,}\ \text{tomorrow,}\ \text{EOS} \vert x) &= 0.60 \times 0.50 \times 0.80 \times 0.90 \\
+&= 0.216
+\end{aligned}
+$$
+
+Compare the completed candidates:
+
+| Candidate | Number of generated tokens (including EOS) | Raw sequence probability |
+|---|---:|---:|
+| travel EOS | 2 | 0.240 |
+| travel abroad tomorrow EOS | 4 | 0.216 |
+
+Since:
+
+$$
+0.240>0.216
+$$
+
+the shorter completed sequence has the higher raw probability.
+
+Equivalently, their log scores are:
+
+$$
+S_{\text{short}} = \log(0.240) \approx-1.427
+$$
+
+$$
+S_{\text{long}} = \log(0.216) \approx-1.532
+$$
+
+And:
+
+$$
+-1.427>-1.532
+$$
+
+Therefore, beam search using raw cumulative log probability would rank the shorter completed sequence higher.
+
+**Why did this happen?**
+
+The longer sequence has additional probability factors. Even when these additional tokens are individually likely, their probabilities multiply together, reducing the raw probability of the complete sequence.
+
+**Important qualification:** A longer candidate can still outperform a different shorter candidate if its conditional probabilities are sufficiently high. Raw likelihood creates a length bias; it does not impose a rule that the shortest sequence always wins.
+
+---
+
+### 4. How does length normalization address this problem?
+
+Length normalization adjusts the cumulative score to account for sequence length.
+
+One simple approach is to calculate the **average log probability per generated token**:
+
+$$
+S_{\mathrm{avg}}(y_{1:T}) = \frac{1}{T} \sum_{t=1}^{T} \log P(y_t \vert x, y_{\lt t})
+$$
+
+Here:
+
+- $T$ is the number of generated tokens.
+- $y_t$ is the token generated at position $t$.
+- $x$ is the original prompt.
+- $S_{\mathrm{avg}}$ is the average log probability.
+
+For consistency in the following numerical example, we count EOS as a generated token.
+
+**Shorter completed sequence**
+
+$$
+S_{\mathrm{short}}=\log(0.240)\approx-1.427
+$$
+
+It contains two generated tokens, including EOS:
+
+$$
+S_{\mathrm{avg,short}} = \frac{-1.427}{2} \approx-0.714
+$$
+
+**Longer completed sequence**
+
+$$
+S_{\mathrm{long}}=\log(0.216)\approx-1.532
+$$
+
+It contains four generated tokens, including EOS:
+
+$$
+S_{\mathrm{avg,long}} = \frac{-1.532}{4} \approx-0.383
+$$
+
+Now compare both scoring methods:
+
+| Sequence | Raw log score | Average log score |
+|---|---:|---:|
+| travel EOS | -1.427 | -0.714 |
+| travel abroad tomorrow EOS | -1.532 | -0.383 |
+
+Using raw log probability:
+
+$$
+-1.427>-1.532
+$$
+
+The shorter candidate ranks higher.
+
+Using average log probability:
+
+$$
+-0.383>-0.714
+$$
+
+The longer candidate ranks higher.
+
+**What changed?**
+
+The longer candidate has a higher average conditional probability per token, even though multiplying all its token probabilities gives a smaller raw sequence probability.
+
+Length normalization reduces the disadvantage of accumulating additional negative log-probability terms.
+
+---
+
+### 5. Is average log probability the only length-normalization formula?
+
+No. Different beam-search implementations use different length penalties.
+
+Another commonly used scoring family is:
+
+$$
+S_{\mathrm{len}}(y_{1:T}) = \frac{\log P(y_{1:T}\mid x)} {\left(\frac{5+T}{6}\right)^{\alpha}}
+$$
+
+Here:
+
+- $T$ is the generated sequence length under the implementation's counting convention.
+- $\alpha$ controls the strength of the length penalty.
+- $\alpha=0$ removes the length adjustment.
+
+When:
+
+$$
+\alpha=0
+$$
+
+the denominator becomes:
+
+$$
+\left(\frac{5+T}{6}\right)^0=1
+$$
+
+Therefore:
+
+$$
+S_{\mathrm{len}}(y_{1:T}) = \log P(y_{1:T}\mid x)
+$$
+
+The score is simply the original cumulative log probability.
+
+Length-penalty formulas, EOS counting, pruning rules and early-stopping behavior vary across inference libraries.
+
+---
+
+### Final takeaway
+
+**Why can beam search prefer shorter completed sequences?**
+
+Every new token multiplies a sequence's raw probability by an additional factor that is at most 1. Equivalently, it adds a non-positive log probability to the cumulative score.
+
+As a result, longer sequences accumulate additional negative score contributions and may rank below shorter completed alternatives.
+
+Length normalization adjusts scores to make comparisons across different output lengths less sensitive to the number of probability factors.
+
+**Remember the distinction:**
+
+- **Raw cumulative log probability:** Scores the probability of the entire generated sequence.
+- **Length-normalized score:** Adjusts that score to account for how many tokens the sequence contains.
+- **Beam search:** Ranks candidate sequences using whichever scoring rule its implementation specifies.
+
+
 ## Question 10 — What is length normalization?
 
 Length normalization modifies sequence scores to address differences in sequence length.
@@ -523,10 +899,9 @@ Length normalization modifies sequence scores to address differences in sequence
 One simple conceptual score is average log probability:
 
 $$
-S_{\mathrm{avg}}(y_{1:T})
-=
-\frac{1}{T}\sum_{t=1}^{T}\log P(y_t\mid x,y_{<t})
+S_{\mathrm{avg}}(y_{1:T}) = \frac{1}{T} \sum_{t=1}^{T} \log P(y_t \vert x, y_{\lt t})
 $$
+
 
 Another commonly used family of scores is:
 
