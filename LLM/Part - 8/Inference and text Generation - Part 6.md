@@ -190,9 +190,7 @@ $$
 In log-score form:
 
 $$
-S(\text{learn Python})
-=
-\log(0.40)+\log(0.70)=\log(0.28)
+S(\text{learn Python}) = \log(0.40)+\log(0.70)=\log(0.28)
 $$
 
 We compute these candidate scores *before appending any of the proposed tokens*.
@@ -299,10 +297,7 @@ $$
 We apply **softmax along the vocabulary dimension separately for each beam**:
 
 $$
-P_{b,v}
-=
-\frac{\exp(Z_{b,v})}
-{\sum_{j=1}^{V}\exp(Z_{b,j})}
+P_{b,v} = \frac{\exp(Z_{b,v})} {\sum_{j=1}^{V}\exp(Z_{b,j})}
 $$
 
 This gives:
@@ -502,23 +497,22 @@ Different libraries differ in how completed and unfinished hypotheses compete an
 Every conditional probability is at most one:
 
 $$
-0\le P(y_t\mid x,y_{<t})\le1
+0 \le P(y_t \vert x, y_{\lt t}) \le 1
 $$
 
 For positive probabilities, its logarithm is non-positive:
 
 $$
-\log P(y_t\mid x,y_{<t})\le0
+\log P(y_t \vert x, y_{\lt t}) \le 0
 $$
+
 
 Adding tokens therefore generally makes the raw cumulative log score more negative:
 
 $$
-S(y_{1:t+1})
-=
-S(y_{1:t})+\log P(y_{t+1}\mid x,y_{1:t})
-\le S(y_{1:t})
+S(y_{1:t+1}) = S(y_{1:t}) + \log P(y_{t+1} \vert x, y_{1:t}) \le S(y_{1:t})
 $$
+
 
 When comparing completed outputs of different lengths, this creates a tendency for raw sequence likelihood to favor shorter possibilities, depending on EOS probabilities and stopping rules.
 
