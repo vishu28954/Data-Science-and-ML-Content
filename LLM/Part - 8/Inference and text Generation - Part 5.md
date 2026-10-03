@@ -504,9 +504,7 @@ Suppose the Transformer has finished one forward pass and, after softmax at **te
 
 We will use the same settings throughout:
 
-$
-T=1,\qquad k=3,\qquad p=0.80
-$
+$T=1$, &nbsp;&nbsp;&nbsp;&nbsp; $k=3$, &nbsp;&nbsp;&nbsp;&nbsp; $p=0.80$
 
 Temperature $T=1$ leaves the original softmax distribution unchanged. This isolates the effect of the two filters. We will first apply **top-k, then top-p**, and then reverse their order.
 
@@ -514,29 +512,25 @@ Temperature $T=1$ leaves the original softmax distribution unchanged. This isola
 
 Keep the three highest-probability tokens:
 
-$
-S_k=\{A,B,C\}
-$
+$S_k=\lbrace A,B,C \rbrace$
+
 
 The retained mass is:
 
-$
-Z_k=0.40+0.30+0.15=0.85
-$
+$Z_k = 0.40 + 0.30 + 0.15 = 0.85$
+
 
 After renormalization:
 
-$
-P_k(A)=\frac{0.40}{0.85}=\frac{8}{17}\approx0.4706
-$
+$$
+\begin{aligned}
+P_k(A) &= \frac{0.40}{0.85} = \frac{8}{17} \approx 0.4706 \\
+P_k(B) &= \frac{0.30}{0.85} = \frac{6}{17} \approx 0.3529 \\
+P_k(C) &= \frac{0.15}{0.85} = \frac{3}{17} \approx 0.1765
+\end{aligned}
+$$
 
-$
-P_k(B)=\frac{0.30}{0.85}=\frac{6}{17}\approx0.3529
-$
 
-$
-P_k(C)=\frac{0.15}{0.85}=\frac{3}{17}\approx0.1765
-$
 
 So the distribution is now:
 
@@ -564,31 +558,28 @@ Accumulate probabilities in descending order:
 
 The first token does not reach 0.80, but the first two do:
 
-$
-P_k(A)+P_k(B)=\frac{14}{17}\approx0.8235\ge0.80
-$
+$P_k(A) + P_k(B) = \frac{14}{17} \approx 0.8235 \ge 0.80$
+
 
 So top-p keeps only:
 
-$
-S_p=\{A,B\}
-$
+$S_p = \lbrace A, B \rbrace$
 
 Renormalize again. Because A and B originally had probability 0.40 and 0.30, their final relative proportions are:
 
-$
-P_{\text{final}}(A)=\frac{0.40}{0.40+0.30}=\frac47\approx0.5714
-$
+$$
+\begin{aligned}
+P_{\text{final}}(A) &= \frac{0.40}{0.40 + 0.30} = \frac{4}{7} \approx 0.5714 \\
+P_{\text{final}}(B) &= \frac{0.30}{0.40 + 0.30} = \frac{3}{7} \approx 0.4286
+\end{aligned}
+$$
 
-$
-P_{\text{final}}(B)=\frac{0.30}{0.40+0.30}=\frac37\approx0.4286
-$
 
 The final sampling distribution is:
 
-$
-P_{\text{final}}=[0.5714,\;0.4286,\;0,\;0,\;0]
-$
+$$
+P_{\text{final}} = \begin{bmatrix} 0.5714 & 0.4286 & 0 & 0 & 0 \end{bmatrix}
+$$
 
 **Top-k followed by top-p has left only two eligible tokens.**
 
@@ -629,27 +620,30 @@ Its cumulative mass is:
 
 The smallest prefix reaching 0.80 is:
 
-$
-S_p=\{A,B,C\}
-$
+$$
+S_p = \left\lbrace A, B, C \right\rbrace
+$$
+
 
 Its retained mass is 0.85. Renormalization gives:
 
-$
-P_p=[0.4706,\;0.3529,\;0.1765,\;0,\;0]
-$
+$$
+P_p = \begin{bmatrix} 0.4706 & 0.3529 & 0.1765 & 0 & 0 \end{bmatrix}
+$$
+
 
 Now apply **top-k with $k=3$**. All three currently eligible tokens survive, so the distribution stays the same:
 
-$
-P_{\text{reverse}}=[0.4706,\;0.3529,\;0.1765,\;0,\;0]
-$
+$$
+P_{\text{reverse}} = \begin{bmatrix} 0.4706 & 0.3529 & 0.1765 & 0 & 0 \end{bmatrix}
+$$
 
 Using the same illustrative draw:
 
-$
-u=0.55
-$
+$$
+u = 0.55
+$$
+
 
 the draw now falls in B's cumulative interval:
 
