@@ -109,6 +109,276 @@ For each active beam:
 
 Two surviving beams can come from the same parent if its two highest-scoring extensions outperform all other candidates.
 
+### Question 4A — If each beam produces a distribution over the full vocabulary, when do we select a token to append?
+
+**We calculate the scores of hypothetical extensions before selecting and appending any token.** Beam search does not choose one next token from each beam first. It evaluates possible beam–token combinations, compares them globally, and only then forms the new active beams.
+
+#### 1. Start with two active beams
+
+Suppose our prompt is "I want to" and beam width is $w=2$.
+
+| Beam | Partial sequence | Cumulative probability |
+|---|---|---:|
+| 1 | I want to travel | 0.60 |
+| 2 | I want to learn | 0.40 |
+
+We store the cumulative **log scores**:
+
+$$
+S_1=\log(0.60),\qquad S_2=\log(0.40)
+$$
+
+#### 2. Obtain a full-vocabulary distribution for each beam
+
+If vocabulary size is $V=50{,}000$, the two beam-specific probability distributions can be arranged into a matrix:
+
+$$
+P\in\mathbb{R}^{2\times50{,}000}
+$$
+
+Each row corresponds to one beam and each column to one vocabulary token. Each row sums to one:
+
+$$
+\sum_{v=1}^{V}P(v\mid B_b)=1
+$$
+
+for each active beam $b$.
+
+**At this point, no next token has been selected or appended.** The forward pass has already produced the probabilities of *all* possible next tokens for every beam.
+
+#### 3. Calculate hypothetical extension scores
+
+For beam $b$ with cumulative score $S_b$ and vocabulary token $v$:
+
+$$
+\boxed{
+C_{b,v}=S_b+\log P(v\mid B_b)
+}
+$$
+
+The score matrix has shape:
+
+$$
+C\in\mathbb{R}^{2\times50{,}000}
+$$
+
+Thus we have up to:
+
+$$
+2\times50{,}000=100{,}000
+$$
+
+candidate one-token extensions.
+
+Crucially, **calculating these scores does not require 100,000 separate Transformer forward passes**. Every candidate's current conditional probability is already available from the two beam-specific distributions.
+
+#### 4. A fully worked miniature example
+
+To make the mechanism easy to see, suppose we only have three eligible next tokens per parent in this simplified toy example:
+
+| Parent beam | Parent probability | Proposed next token | Next-token probability | Cumulative candidate probability |
+|---|---:|---|---:|---:|
+| travel | 0.60 | abroad | 0.50 | 0.30 |
+| travel | 0.60 | tomorrow | 0.30 | 0.18 |
+| travel | 0.60 | soon | 0.20 | 0.12 |
+| learn | 0.40 | Python | 0.70 | 0.28 |
+| learn | 0.40 | English | 0.20 | 0.08 |
+| learn | 0.40 | more | 0.10 | 0.04 |
+
+For example:
+
+$$
+P(\text{travel abroad}\mid x)=0.60\times0.50=0.30
+$$
+
+$$
+P(\text{learn Python}\mid x)=0.40\times0.70=0.28
+$$
+
+In log-score form:
+
+$$
+S(\text{learn Python})
+=
+\log(0.40)+\log(0.70)=\log(0.28)
+$$
+
+We compute these candidate scores *before appending any of the proposed tokens*.
+
+#### 5. Rank globally and append only the winners
+
+Rank all six extensions together:
+
+| Global rank | Hypothetical sequence | Cumulative probability |
+|---:|---|---:|
+| 1 | travel abroad | 0.30 |
+| 2 | learn Python | 0.28 |
+| 3 | travel tomorrow | 0.18 |
+| 4 | travel soon | 0.12 |
+| 5 | learn English | 0.08 |
+| 6 | learn more | 0.04 |
+
+Because beam width is $w=2$, the surviving beams become:
+
+$$
+B_1'=\text{travel abroad}
+$$
+
+$$
+B_2'=\text{learn Python}
+$$
+
+**Only now** do we append "abroad" to the travel parent and "Python" to the learn parent. The next decode forward pass runs for the two surviving unfinished sequences; the discarded hypothetical candidates are not expanded further.
+
+#### 6. Can both surviving extensions come from the same parent?
+
+Yes. Suppose the existing beams A and B have cumulative probabilities 0.60 and 0.40, and their candidate token distributions are:
+
+| Parent | P(X) | P(Y) |
+|---|---:|---:|
+| A | 0.60 | 0.40 |
+| B | 0.50 | 0.50 |
+
+All four extension probabilities are:
+
+$$
+P(A,X)=0.60\times0.60=0.36
+$$
+
+$$
+P(A,Y)=0.60\times0.40=0.24
+$$
+
+$$
+P(B,X)=0.40\times0.50=0.20
+$$
+
+$$
+P(B,Y)=0.40\times0.50=0.20
+$$
+
+Global top-2 selection retains **A → X and A → Y**. Parent B disappears completely. Ordinary beam search does not reserve one winning extension for each parent.
+
+**Efficiency note:** Actual implementations need not fully sort every vocabulary extension. Top-selection algorithms can find the required high-scoring candidates. In unconstrained global top-$w$ selection, each parent's top $w$ candidate extensions suffice as potential global winners, though EOS handling and other constraints can require a larger candidate pool.
+
+---
+
+### Question 4B — Does each beam produce its own full-vocabulary probability distribution, or does one forward pass produce one common distribution for all beams?
+
+**Each active beam has its own conditional next-token distribution over the entire vocabulary.** Several beams can nevertheless be processed together in a **single batched Transformer forward pass**.
+
+#### 1. Why are the distributions different?
+
+Consider two beam histories:
+
+~~~text
+Beam 1: I want to travel
+Beam 2: I want to learn
+~~~
+
+Their predictions are conditioned on different contexts:
+
+$$
+P(v\mid\text{I want to travel})
+$$
+
+$$
+P(v\mid\text{I want to learn})
+$$
+
+The model weights are shared, but the beam histories are different. Therefore the predicted distributions will generally differ. For example, "abroad" may be likely after "travel", whereas "Python" may be likely after "learn".
+
+#### 2. How does one batched forward pass produce both distributions?
+
+Suppose beam width is $w=2$ and vocabulary size is $V=50{,}000$. An inference system can batch the two beam continuations, preserving their separate contexts and appropriate cached attention state.
+
+The model's output logits have shape:
+
+$$
+Z\in\mathbb{R}^{w\times V}
+$$
+
+In our example:
+
+$$
+Z\in\mathbb{R}^{2\times50{,}000}
+$$
+
+We apply **softmax along the vocabulary dimension separately for each beam**:
+
+$$
+P_{b,v}
+=
+\frac{\exp(Z_{b,v})}
+{\sum_{j=1}^{V}\exp(Z_{b,j})}
+$$
+
+This gives:
+
+$$
+P\in\mathbb{R}^{2\times50{,}000}
+$$
+
+Each row independently sums to one:
+
+$$
+\sum_{v=1}^{V}P_{b,v}=1
+$$
+
+We **do not** compute one softmax across the logits of all beams combined.
+
+For multiple independent prompts, an implementation may conceptually have logits of shape:
+
+$$
+Z\in\mathbb{R}^{B\times w\times V}
+$$
+
+where $B$ is the number of prompts. The prompt and beam dimensions may be flattened internally.
+
+#### 3. What happens to the KV cache?
+
+All beams originated from the same prompt and can share its cached prefix. Once their generated tokens diverge, they generally have different continuation-specific KV states.
+
+A GPU can process their current decode steps together as a batch without making their conditional distributions identical. When beams are reordered after pruning, the implementation must reorder or reindex their corresponding KV states.
+
+#### 4. What is special about the very first generation step?
+
+Immediately after prefill, no beams have diverged yet. There is only **one known prompt and one next-token distribution** for that prompt. Beam search uses that distribution to choose its initial candidate tokens, thereby creating separate beam histories.
+
+After those selected tokens diverge, each surviving beam generally needs its own next-token distribution at the following decode iteration. Their forward computations can still be batched.
+
+#### 5. How does this connect back to scoring every extension?
+
+For $w$ active beams and vocabulary size $V$:
+
+$$
+S\in\mathbb{R}^{w}
+$$
+
+contains the parent cumulative log scores. The per-beam probability matrix is:
+
+$$
+P\in\mathbb{R}^{w\times V}
+$$
+
+Broadcast each parent's score across its own vocabulary row:
+
+$$
+C_{b,v}=S_b+\log P_{b,v}
+$$
+
+The result:
+
+$$
+C\in\mathbb{R}^{w\times V}
+$$
+
+contains the candidate scores. Beam search selects the **global top-$w$ eligible beam–token pairs**, then appends their tokens to the corresponding parents and repeats for surviving unfinished beams.
+
+**Mental model:** One shared Transformer model; one *conditional full-vocabulary distribution per active beam*; possibly one *batched* forward pass; and one *global selection* over all beam–token extensions.
+
+---
+
 ## Question 5 — Can you show a complete numerical example?
 
 Set beam width:
