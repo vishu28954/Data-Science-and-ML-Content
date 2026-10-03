@@ -1241,52 +1241,52 @@ When penalties change logits, a beam's search score can differ from the **unmodi
 **Sequence probability:**
 
 $$
-P(y_{1:T}\mid x)=\prod_{t=1}^{T}P(y_t\mid x,y_{<t})
+P(y_{1:T} \vert x) = \prod_{t=1}^{T} P(y_t \vert x, y_{\lt t})
 $$
+
 
 **Accumulated beam score:**
 
 $$
-S(y_{1:T})=\sum_{t=1}^{T}\log P(y_t\mid x,y_{<t})
+S(y_{1:T}) = \sum_{t=1}^{T} \log P(y_t \vert x, y_{\lt t})
 $$
+
 
 **Add one token to a beam:**
 
 $$
-S(y_{1:t}\mathbin{\|}v)
-=
-S(y_{1:t})+\log P(v\mid x,y_{1:t})
+S(y_{1:t} \parallel v) = S(y_{1:t}) + \log P(v \vert x, y_{1:t})
 $$
+
 
 **Example length-adjusted score:**
 
 $$
-S_{\mathrm{len}}(y_{1:T})
-=
-\frac{\log P(y_{1:T}\mid x)}
-{\left(\frac{5+T}{6}\right)^{\alpha}}
+S_{\mathrm{len}}(y_{1:T}) = \frac{\log P(y_{1:T} \vert x)}{\left(\frac{5+T}{6}\right)^{\alpha}}
 $$
+
 
 **Example sign-aware multiplicative repetition penalty for an already-seen token:**
 
 $$
-z_i'=
+z_i' =
 \begin{cases}
-\displaystyle\frac{z_i}{r}, & z_i>0\\[8pt]
-z_i r, & z_i<0\\
-0, & z_i=0
+\frac{z_i}{r}, & z_i > 0 \\
+z_i r, & z_i \text{ } \lt 0 \\
+0, & z_i = 0
 \end{cases}
 $$
+
 
 **Simple presence and frequency penalties:**
 
 $$
-z_i'=z_i-\lambda_{\mathrm{presence}}\mathbf{1}[c_i>0]
+\begin{aligned}
+z_i' &= z_i - \lambda_{\mathrm{presence}} \mathbf{1}[c_i \gt 0] \\
+z_i' &= z_i - \lambda_{\mathrm{frequency}} c_i
+\end{aligned}
 $$
 
-$$
-z_i'=z_i-\lambda_{\mathrm{frequency}}c_i
-$$
 
 # Bridge to Part 7
 
