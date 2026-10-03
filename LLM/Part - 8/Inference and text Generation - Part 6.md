@@ -906,10 +906,7 @@ $$
 Another commonly used family of scores is:
 
 $$
-S_{\mathrm{len}}(y_{1:T})
-=
-\frac{\log P(y_{1:T}\mid x)}
-{\left(\frac{5+T}{6}\right)^{\alpha}}
+S_{\mathrm{len}}(y_{1:T}) = \frac{\log P(y_{1:T} \vert x)}{\left(\frac{5+T}{6}\right)^{\alpha}}
 $$
 
 Here $\alpha$ controls the penalty's strength. With $\alpha=0$, the denominator is one and the score is the raw log probability.
