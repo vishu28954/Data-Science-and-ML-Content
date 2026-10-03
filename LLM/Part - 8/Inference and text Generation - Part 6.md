@@ -23,16 +23,16 @@ Beam search addresses the first problem by searching over competing continuation
 Greedy decoding chooses the highest-probability next token:
 
 $$
-y_t=\underset{i}{\operatorname{argmax}}\;P(i\mid x,y_{<t})
+y_t = \arg\max_i P(i \vert x, y_{\lt t})
 $$
+
 
 But a full sequence has probability:
 
 $$
-P(y_1,\ldots,y_T\mid x)
-=
-\prod_{t=1}^{T}P(y_t\mid x,y_{<t})
+P(y_1, \ldots, y_T \vert x) = \prod_{t=1}^{T} P(y_t \vert x, y_{\lt t})
 $$
+
 
 The locally most probable next token need not lead to the most probable complete sequence.
 
@@ -67,29 +67,21 @@ $$
 The probability of that partial sequence is:
 
 $$
-P(y_{1:t}\mid x)
-=
-\prod_{j=1}^{t}P(y_j\mid x,y_{<j})
+P(y_{1:t} \vert x) = \prod_{j=1}^{t} P(y_j \vert x, y_{\lt j})
 $$
+
 
 Instead of multiplying many tiny numbers, beam search usually accumulates their log probabilities:
 
 $$
-S(y_{1:t})
-=
-\log P(y_{1:t}\mid x)
-=
-\sum_{j=1}^{t}\log P(y_j\mid x,y_{<j})
+S(y_{1:t}) = \log P(y_{1:t} \vert x) = \sum_{j=1}^{t} \log P(y_j \vert x, y_{\lt j})
 $$
+
 
 When appending a new token $v$:
 
 $$
-S(y_{1:t}\mathbin{\|}v)
-=
-S(y_{1:t})
-+
-\log P(v\mid x,y_{1:t})
+S(y_{1:t} \parallel v) = S(y_{1:t}) + \log P(v \vert x, y_{1:t})
 $$
 
 The concatenation symbol $\mathbin{\|}$ means "append token $v$".
