@@ -1006,11 +1006,11 @@ Unlike temperature, which scales every token's logits, repetition penalties sele
 One widely used convention applies a factor $r>1$ to the logit of a token that has previously appeared:
 
 $$
-z_i'=
+z_i' =
 \begin{cases}
-\displaystyle\frac{z_i}{r}, & z_i>0\\[8pt]
-z_i r, & z_i<0\\[4pt]
-0, & z_i=0
+\frac{z_i}{r}, & z_i \gt 0 \\
+z_i r, & z_i \lt 0 \\
+0, & z_i = 0
 \end{cases}
 $$
 
