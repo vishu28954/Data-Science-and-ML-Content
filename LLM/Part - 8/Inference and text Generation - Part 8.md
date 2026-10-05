@@ -1257,6 +1257,39 @@ Long output
 
 Both can be expensive in different ways.
 
+### Story Bridge 1 — From One Request to a Production Server
+
+So far, we have mostly followed **one request** through inference.
+
+That was useful because it let us understand the cost of a single prompt and a single generated answer:
+
+~~~text
+One user
+   ↓
+Prompt prefill
+   ↓
+Sequential decode
+   ↓
+Repeated model execution
+   ↓
+Latency + KV-cache growth
+~~~
+
+But a real inference server does not usually serve only one person.
+
+Now imagine that while our first user is waiting for tokens, hundreds or thousands of other users also send prompts. The GPU is expensive, so leaving parts of it idle while serving requests one by one would waste hardware capacity.
+
+This creates the next systems problem:
+
+> **How do we serve many users efficiently without making each individual user wait too long?**
+
+That question naturally leads to two ideas that are easy to confuse:
+
+- **Latency:** How long one user waits.
+- **Throughput:** How much total work the server completes.
+
+Once that distinction is clear, batching becomes much easier to understand: batching is not primarily about changing the model's mathematics; it is about using the hardware more efficiently across many simultaneous requests.
+
 ## Question 18 — What is latency versus throughput?
 
 These terms describe different objectives.
@@ -1356,6 +1389,39 @@ Long outputs can:
 
 This is why output-length distributions matter for serving capacity planning.
 
+### Story Bridge 2 — Batching Solves Utilization, but Creates Memory Pressure
+
+We have now moved from one request to **many concurrent requests**.
+
+Batching helps the GPU do more useful work at once, and continuous batching prevents finished requests from leaving empty slots. But this creates a new pressure:
+
+~~~text
+More active requests
+        ↓
+More active sequence histories
+        ↓
+More KV-cache memory
+        ↓
+More accelerator memory consumed
+~~~
+
+A short request may leave quickly, while a long request can keep its KV cache alive for hundreds or thousands of decode steps.
+
+At some point, two different limits can appear:
+
+1. The **requests' KV caches** consume a large fraction of accelerator memory.
+2. The **model weights themselves** may be too large for a single GPU.
+
+So the story now changes from:
+
+> "How do we keep one GPU busy?"
+
+to:
+
+> **"What do we do when one GPU is no longer enough?"**
+
+That is why multi-GPU inference appears next. It is not an isolated topic; it is a consequence of model size, concurrency, and memory pressure.
+
 ## Question 22 — Why are large models often split across multiple GPUs?
 
 A model may not fit on one accelerator, or one accelerator may not provide enough compute or memory bandwidth.
@@ -1385,6 +1451,54 @@ Therefore, inference performance depends not only on GPU compute but also on:
 - Topology.
 - Collective communication implementation.
 - Parallelism strategy.
+
+### Story Bridge 3 — Once Multiple GPUs Work Together, Data Movement Becomes the Enemy
+
+Splitting a large model across several GPUs solves a capacity problem, but it introduces a new cost: **communication**.
+
+Now every generated token may involve not only local computation, but also data movement:
+
+~~~text
+GPU computation
+     ↓
+Exchange partial results
+     ↓
+Synchronize
+     ↓
+Next layer / next operation
+~~~
+
+This reveals a broader principle:
+
+> **Inference performance is often limited not only by how much arithmetic we perform, but by how much data we have to move.**
+
+Once we recognize data movement as a major cost, the next family of optimizations becomes intuitive.
+
+Instead of asking only:
+
+> "How can we calculate faster?"
+
+we also ask:
+
+> **"Can we move fewer bytes, store less data, or avoid repeating work?"**
+
+That question leads directly to:
+
+~~~text
+Too many weight bytes
+    → Quantization
+
+Repeated identical prompt work
+    → Prefix caching
+
+KV memory fragmentation
+    → Paged KV cache
+
+Too much attention-memory traffic
+    → FlashAttention
+~~~
+
+These optimizations attack different bottlenecks, but they all arise from the same systems problem: **expensive movement and management of data**.
 
 ## Question 24 — How does quantization reduce inference cost?
 
@@ -1459,6 +1573,42 @@ $$
 $$
 
 It changes **how the computation is executed**.
+
+### Story Bridge 4 — Now Stress-Test the System with a Very Long Context
+
+At this point we have several tools:
+
+- KV caching avoids recomputing old K/V.
+- Quantization reduces weight size and bandwidth demand.
+- Prefix caching avoids repeated prompt work.
+- Paged KV-cache management improves memory allocation.
+- FlashAttention reduces attention-related memory traffic.
+
+Everything may look manageable for ordinary sequence lengths.
+
+Now imagine changing only one thing:
+
+> **Instead of a few thousand tokens of context, suppose the model must work with tens of thousands—or more.**
+
+Suddenly, several earlier costs grow at the same time:
+
+~~~text
+Longer prompt
+    ↓
+More prefill work
+    ↓
+Larger KV cache
+    ↓
+More historical K/V to read during decode
+    ↓
+Less memory available for concurrent users
+    ↓
+Greater bandwidth pressure
+~~~
+
+This makes long context a useful **stress test** for the entire inference system.
+
+It brings together ideas that previously looked separate: attention complexity, KV-cache capacity, decode bandwidth, batching, and serving concurrency.
 
 ## Question 28 — Why is long-context inference especially challenging?
 
@@ -1572,6 +1722,40 @@ M_{\mathrm{runtime}}
 $$
 
 This is not a precise capacity-planning equation, but it organizes the major components.
+
+### Story Bridge 5 — Put Yourself Inside the Inference Server
+
+We now have all the individual pieces. Before discussing the final optimization map, it helps to stop treating them as separate concepts.
+
+Imagine that you are the inference server and a request arrives.
+
+You have to answer, in order:
+
+~~~text
+1. Can the model weights fit?
+        ↓
+2. How expensive is the prompt prefill?
+        ↓
+3. How much KV cache must be created?
+        ↓
+4. How quickly can I return the first token?
+        ↓
+5. How many sequential decode steps will follow?
+        ↓
+6. How much weight and KV data must move per step?
+        ↓
+7. Are other requests sharing the hardware?
+        ↓
+8. Will batching improve throughput?
+        ↓
+9. Does this request stay alive long enough to hold scarce KV memory?
+        ↓
+10. Do I need multiple GPUs or another optimization?
+~~~
+
+This is the point where the chapter becomes one connected system rather than a collection of terms.
+
+The next worked example follows one request from **arrival to completion** and lets us see where each cost enters.
 
 ## Question 33 — What is a worked end-to-end example?
 
