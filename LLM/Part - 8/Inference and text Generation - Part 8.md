@@ -744,9 +744,7 @@ $$
 Therefore:
 
 $$
-M_{\mathrm{weights}}
-\approx
-14\times10^9\ \mathrm{bytes}
+M_{\mathrm{weights}} \approx 14\times10^9\ \mathrm{bytes}
 $$
 
 or roughly 14 GB in decimal units, before additional runtime overhead.
@@ -756,9 +754,7 @@ or roughly 14 GB in decimal units, before additional runtime overhead.
 At 16 bits:
 
 $$
-70\times10^9\times2
-=
-140\times10^9\ \mathrm{bytes}
+70\times10^9\times2 = 140\times10^9\ \mathrm{bytes}
 $$
 
 or roughly 140 GB in decimal units.
@@ -809,8 +805,7 @@ An operation with low **arithmetic intensity** performs relatively few calculati
 A simplified definition is:
 
 $$
-\text{Arithmetic Intensity}
-=
+\text{Arithmetic Intensity} =
 \frac{\text{FLOPs}}
 {\text{Bytes moved}}
 $$
@@ -878,11 +873,7 @@ This is only a **first-order estimate**. It ignores or simplifies:
 ### 7B example
 
 $$
-2P
-\approx
-2\times7\times10^9
-=
-14\times10^9
+2P \approx 2\times7\times10^9 = 14\times10^9
 $$
 
 So approximately 14 GFLOPs of dense parameterized work per token as a rough scale estimate.
@@ -1024,9 +1015,7 @@ $$
 Then:
 
 $$
-M_{\mathrm{KV}}
-=
-2\times32\times1\times8192\times8\times128\times2
+M_{\mathrm{KV}} = 2\times32\times1\times8192\times8\times128\times2
 $$
 
 which equals:
@@ -1066,6 +1055,7 @@ Standard multi-head attention may use many Key/Value heads.
 **Grouped-Query Attention (GQA)** uses fewer KV heads than Query heads.
 
 Since KV-cache memory is proportional to:
+
 $$
 H_{\mathrm{KV}}
 $$
@@ -1174,9 +1164,7 @@ $$
 the projection contains:
 
 $$
-50{,}000\times4096
-=
-204{,}800{,}000
+50{,}000\times4096 = 204{,}800{,}000
 $$
 
 weight entries.
@@ -1196,10 +1184,7 @@ $$
 softmax computes:
 
 $$
-P(i)
-=
-\frac{e^{z_i}}
-{\sum_{j=1}^{V}e^{z_j}}
+P(i) = \frac{e^{z_i}} {\sum_{j=1}^{V}e^{z_j}}
 $$
 
 Sampling strategies may add operations such as:
