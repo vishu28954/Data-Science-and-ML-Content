@@ -97,9 +97,7 @@ $$
 The same idea can be understood using the probability chain rule:
 
 $$
-P(y_1,y_2\mid x)
-=
-P(y_1\mid x)\,P(y_2\mid x,y_1)
+P(y_1,y_2\mid x) = P(y_1\mid x)\,P(y_2\mid x,y_1)
 $$
 
 Suppose:
@@ -135,15 +133,7 @@ $$
 Therefore:
 
 $$
-P(y_1\mid x)
-=
-\frac{P(y_1,x)}{P(x)}
-=
-\frac{0.08}{0.1}
-=
-\frac{80}{100}
-=
-0.8
+P(y_1\mid x) = \frac{P(y_1,x)}{P(x)} = \frac{0.08}{0.1} = \frac{80}{100} = 0.8
 $$
 
 Physically, once we know that the prompt $x$ occurred, we restrict attention from all 1,000 situations to the 100 situations containing that prompt. In 80 of those 100 cases, the next token is "Paris".
@@ -153,37 +143,24 @@ Now suppose that among those 80 cases containing both $x$ and $y_1=\text{"Paris"
 Then:
 
 $$
-P(y_2\mid x,y_1)
-=
-\frac{72}{80}
-=
-0.9
+P(y_2\mid x,y_1) = \frac{72}{80} = 0.9
 $$
 
 Equivalently:
 
 $$
-P(y_2\mid x,y_1)
-=
-\frac{P(x,y_1,y_2)}{P(x,y_1)}
-=
-\frac{72/1000}{80/1000}
-=
-0.9
+P(y_2\mid x,y_1) = \frac{P(x,y_1,y_2)}{P(x,y_1)} = \frac{72/1000}{80/1000} = 0.9
 $$
 
 Finally, by the chain rule:
 
 $$
-P(y_1,y_2\mid x)
-=
-P(y_1\mid x)\,P(y_2\mid x,y_1)
+\begin{aligned}
+P(y_1, y_2 \vert x) &= P(y_1 \vert x) \, P(y_2 \vert x, y_1) \\
+&= 0.8 \times 0.9 = 0.72
+\end{aligned}
 $$
 
-$$
-=0.8\times0.9
-=0.72
-$$
 
 So, in this illustrative counting example, given the prompt $x$, the probability of the two-token continuation "Paris." is 0.72.
 
@@ -470,12 +447,9 @@ Yes.
 Greedy decoding selects:
 
 $$
-y_t
-=
-\underset{v}{\operatorname{argmax}}
-\;
-P(v\mid x,y_{<t})
+y_t = \arg\max_v P(v \vert x, y_{\lt t})
 $$
+
 
 Even though the choice is deterministic for fixed logits, the next distribution still depends on the selected token.
 
@@ -614,9 +588,7 @@ After the first output token, each additional token requires another decode iter
 If token $j$ takes time $t_j$:
 
 $$
-T_{\mathrm{decode}}
-=
-\sum_{j=1}^{N}t_j
+T_{\mathrm{decode}} = \sum_{j=1}^{N}t_j
 $$
 
 The delay between successive streamed output tokens is often called inter-token latency or time per output token.
@@ -642,11 +614,7 @@ $$
 then a simplified lower-level decode timeline is approximately:
 
 $$
-100\times20\ \mathrm{ms}
-=
-2000\ \mathrm{ms}
-=
-2\ \mathrm{s}
+100\times20\ \mathrm{ms} = 2000\ \mathrm{ms} = 2\ \mathrm{s}
 $$
 
 This assumes no overlap, no scheduling delays, and constant decode time. Real serving latency varies.
@@ -687,11 +655,9 @@ Potentially, yes. Non-autoregressive sequence models attempt to predict multiple
 But standard GPT-style decoder LLMs use autoregressive factorization:
 
 $$
-P(y_{1:T}\mid x)
-=
-\prod_{t=1}^{T}
-P(y_t\mid x,y_{<t})
+P(y_{1:T} \vert x) = \prod_{t=1}^{T} P(y_t \vert x, y_{\lt t})
 $$
+
 
 The sequential behavior described in this syllabus follows from that modeling choice.
 
