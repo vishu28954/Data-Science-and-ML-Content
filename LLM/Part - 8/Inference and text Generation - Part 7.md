@@ -715,12 +715,9 @@ Finding $w$ completed candidates does **not automatically imply** that every unf
 For raw cumulative log probability, a useful upper-bound observation is:
 
 $$
-S(y_{1:t+1})
-=
-S(y_{1:t})+
-\log P(y_{t+1}\mid x,y_{1:t})
-\le S(y_{1:t})
+S(y_{1:t+1}) = S(y_{1:t}) + \log P(y_{t+1} \vert x, y_{1:t}) \le S(y_{1:t})
 $$
+
 
 So the raw log score of an unfinished prefix is an **upper bound** on the raw score of any continuation of that exact prefix. If even the best possible unfinished continuation cannot outrank the completed candidates needed for the final result, an implementation can safely stop under those simplified scoring assumptions.
 
@@ -791,21 +788,14 @@ Assume a hypothetical serving configuration with:
 The counted prompt occupancy is:
 
 $$
-N_{\mathrm{prompt}}
-=
-6800+120+80+60
-=
-7060
+N_{\mathrm{prompt}} = 6800 + 120 + 80 + 60 = 7060
 $$
+
 
 Subtract it and the illustrative 32-position reserve:
 
 $$
-C_{\mathrm{remaining}}
-=
-8192-7060-32
-=
-1100
+C_{\mathrm{remaining}} = 8192 - 7060 - 32 = 1100
 $$
 
 The request asks for 1,500 new tokens, but the remaining simplified context capacity is 1,100, and the model also has a separate 1,024-token output cap.
@@ -813,11 +803,7 @@ The request asks for 1,500 new tokens, but the remaining simplified context capa
 If the serving system implements all three as hard ceilings, the effective maximum is:
 
 $$
-M_{\mathrm{effective}}
-=
-\min(1500,\;1100,\;1024)
-=
-1024
+M_{\mathrm{effective}} = \min(1500,\;1100,\;1024) = 1024
 $$
 
 This does **not** mean the provider must silently lower the user's requested maximum from 1,500 to 1,024. Depending on the API, the request may be rejected, adjusted, or handled under a different context-management policy. The calculation describes the intersection of those ceilings **if generation is allowed under this simplified setup**.
