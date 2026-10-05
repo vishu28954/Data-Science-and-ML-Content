@@ -20,7 +20,11 @@ Part 8 connects all of those ideas into a **systems-level explanation**:
 
 # 8.14 Why Generation Is Sequential
 
-## Question 1 — What does "generation is sequential" actually mean?
+### Story Bridge 1 — Parallel Inside a Step, Sequential Across Output Positions
+
+Transformers are famous for parallel matrix computation, so calling generation "sequential" can sound contradictory. The key is to separate **parallel work inside one forward pass** from the order in which **accepted output tokens** become available. Before going further, we need to identify exactly which part of generation forms the sequential chain.
+
+## Question 1 — If Transformers are highly parallel, what exactly is sequential during generation?
 
 For an autoregressive language model, a generated sequence is factorized as:
 
@@ -58,7 +62,11 @@ Compute distribution for y3
 
 The key word is **actual**. Before $y_1$ is selected, we do not yet know the exact context needed to compute the target-model distribution for $y_2$.
 
-## Question 2 — Why can't the model simply generate all output tokens in one forward pass?
+### Story Bridge 2 — The Next Token Changes the Context for the Token After It
+
+Once we know that accepted output positions are sequential, the natural challenge is: why not compute all future positions together anyway? The obstacle is that the distribution for a later token depends on the **actual token selected earlier**. So we now need to connect sequential generation to conditional probability and the chain rule.
+
+## Question 2 — If the model can compute logits in one pass, why can't it generate the whole continuation at once?
 
 Suppose the prompt is:
 
@@ -176,7 +184,11 @@ So before the first token is selected, there is no single unique distribution fo
 
 A standard autoregressive decoder therefore cannot exactly produce the entire sampled continuation in one ordinary forward pass.
 
-## Question 3 — But during prefill, don't we process many prompt tokens in parallel?
+### Story Bridge 3 — Known History Changes the Parallelism Story
+
+The chain-rule argument seems to suggest that every position should be processed one after another. But the prompt is different from future output: all prompt-token identities are already known before the forward pass begins. That creates an important exception we must understand—**prefill can exploit positional parallelism even under causal attention**.
+
+## Question 3 — If generated tokens depend on earlier tokens, how can prefill process the whole prompt in parallel?
 
 Yes. This is one of the most important distinctions in LLM inference.
 
@@ -212,7 +224,11 @@ All prompt positions can be represented in a batched matrix computation because 
 
 **Causal dependence does not prevent parallel computation when the conditioned-on tokens are already known.**
 
-## Question 4 — Why is decode different from prefill?
+### Story Bridge 4 — The Boundary Between Known Tokens and Unknown Tokens
+
+Prefill works in parallel because the entire prompt is already available. After the prompt ends, that advantage disappears: the next generated token does not exist until the current prediction is resolved. This boundary between **known prompt tokens** and **unknown future tokens** is exactly what makes decode behave differently.
+
+## Question 4 — Once the first output token is selected, why does decode lose prefill's positional parallelism?
 
 After prefill, the first output token $y_1$ is selected from the logits produced by the final prompt position.
 
@@ -246,7 +262,11 @@ The new hidden state generates logits for the **following** token.
 
 This process cannot move to the next generation position until the current token has been selected.
 
-## Question 5 — Can you show the exact timeline from prefill to multiple decode steps?
+### Story Bridge 5 — Follow One Request Through the Boundary
+
+We now understand the difference conceptually, but it is easy to lose track of which forward pass produces which token. The cleanest way to fix that is to follow one request from prompt prefill, to first-token selection, to successive one-token decode passes.
+
+## Question 5 — What does the exact prefill-to-decode timeline look like token by token?
 
 Suppose the prompt tokens are:
 
@@ -318,7 +338,11 @@ P(y3 | prompt, y1, y2)
 ...
 ~~~
 
-## Question 6 — Why doesn't the causal mask itself make prefill sequential?
+### Story Bridge 6 — Dependency Rules Do Not Always Imply Serial Execution
+
+The timeline shows that prefill handles many positions together even though later positions are forbidden from looking into the future. That means **information dependency** and **execution order** are not the same thing. The next step is to understand why a causal mask restricts visibility without requiring one Transformer invocation per prompt token.
+
+## Question 6 — If attention is causal, why doesn't the causal mask force prefill to run sequentially?
 
 The causal mask controls **which positions can attend to which other positions**. It does not require us to execute each prompt position in a separate Transformer invocation.
 
@@ -346,7 +370,11 @@ Unknown future generated tokens
 → cannot be conditioned on until selected
 ~~~
 
-## Question 7 — How is this different from training with teacher forcing?
+### Story Bridge 7 — Training Has Something Inference Does Not: Future Ground-Truth Tokens
+
+Causal masking alone clearly does not prevent parallel position-wise computation. Training provides an even stronger example: many next-token predictions are computed together. The missing piece is that training already knows the ground-truth sequence, while inference must create the future tokens itself.
+
+## Question 7 — Why can training predict many next tokens in parallel when inference cannot?
 
 During standard next-token training, the entire target sequence is already available in the training example.
 
@@ -380,7 +408,11 @@ At inference time, those future ground-truth tokens do not exist. The model must
 
 This is why **training can parallelize token positions far more aggressively than autoregressive generation**.
 
-## Question 8 — Why can't we just use the most likely future token at every position in parallel?
+### Story Bridge 8 — What If We Guess the Future Instead of Waiting for It?
+
+Teacher forcing works because the previous tokens are known. At inference time they are not, so a tempting shortcut is to predict several future positions using provisional guesses. But if the first guess changes, every later conditional distribution can change too. We need to see why a guessed suffix is not automatically the target model's true continuation.
+
+## Question 8 — Could we guess the most likely future tokens in parallel and avoid sequential decode?
 
 Because the prediction for position $t+1$ depends on which token was actually selected at position $t$.
 
@@ -410,7 +442,11 @@ and the guessed suffix B → C may no longer be valid.
 
 This dependency is why ordinary exact autoregressive decoding advances one accepted token at a time.
 
-## Question 9 — Does sampling make the sequential dependency even more obvious?
+### Story Bridge 9 — A Random Choice Can Redirect the Entire Future
+
+Parallel future guesses are fragile even under deterministic choices. Sampling makes the dependency easier to see because two runs can deliberately choose different valid tokens from the same distribution. Once that happens, the model is conditioning on two different histories, so the futures can diverge immediately.
+
+## Question 9 — What changes when the current token is sampled rather than predetermined?
 
 Yes.
 
@@ -440,7 +476,11 @@ A stochastic choice at one step changes the context used for every subsequent st
 
 That means the model cannot know the exact future sampled path before those earlier random choices have been resolved.
 
-## Question 10 — Is greedy decoding also sequential even though it is deterministic?
+### Story Bridge 10 — Randomness Is Not the Source of Sequentiality
+
+Sampling shows how one token choice redirects later predictions, but sequential dependence is not caused by randomness. Even when the next token is fixed by an argmax rule, the model still must know that selected token before constructing the exact context for the following position.
+
+## Question 10 — If greedy decoding is deterministic, why doesn't determinism remove the sequential dependency?
 
 Yes.
 
@@ -467,7 +507,11 @@ $$
 
 Determinism removes sampling randomness; it does **not** remove the autoregressive dependency.
 
-## Question 11 — Is beam search sequential too?
+### Story Bridge 11 — More Hypotheses Create Width, Not Future Depth
+
+Greedy decoding follows one deterministic path. Beam search keeps several paths alive, so it introduces much more same-step parallel work. But parallelizing **across hypotheses at one depth** is different from skipping the dependency between depth $t$ and depth $t+1$.
+
+## Question 11 — Can beam search parallelize away the token-by-token dependency?
 
 Yes, but the unit of work is a **set of active hypotheses** rather than one sequence.
 
@@ -487,7 +531,11 @@ Sequential dependence across generation depths
 
 Increasing beam width increases same-step parallel work but does not remove the depth-by-depth dependency.
 
-## Question 12 — Can multiple users be decoded in parallel even though one user's tokens are sequential?
+### Story Bridge 12 — Sequential Per Request Does Not Mean the GPU Must Be Idle
+
+Beam search reveals one source of parallelism across hypotheses. Production serving provides another: many independent users can each be at their own current decode step. Their histories remain sequential internally, but the server can batch those current steps together.
+
+## Question 12 — If one sequence is sequential, where can an inference server still find useful parallelism?
 
 Yes. This is a major serving optimization.
 
@@ -522,7 +570,11 @@ This is one reason to distinguish:
 - **Within-sequence parallelism:** limited during autoregressive decode.
 - **Across-sequence batching:** highly useful for throughput.
 
-## Question 13 — Does KV caching remove the sequential nature of generation?
+### Story Bridge 13 — Faster Reuse Is Not the Same as Breaking the Dependency
+
+Across-request batching improves hardware utilization, while KV caching improves work inside each request by reusing old Keys and Values. That can dramatically reduce redundant computation. But an optimization can reduce the **cost of each step** without changing the fact that the next accepted token depends on the previous one.
+
+## Question 13 — If KV caching makes decode much faster, does it remove the autoregressive dependency?
 
 No.
 
@@ -543,7 +595,11 @@ This is much more efficient, but the next accepted token must still be known bef
 
 **KV cache removes redundant computation, not autoregressive dependency.**
 
-## Question 14 — Does longer context make sequential generation more sequential?
+### Story Bridge 14 — The Chain Stays Sequential, but Each Link Can Become More Expensive
+
+KV caching preserves the same token-by-token dependency while making it practical. As the cached history grows, however, the new query must attend over more Keys and Values. So longer context does not create "more sequentiality"; it changes the amount of work carried by each sequential step.
+
+## Question 14 — If the dependency chain is unchanged, what does a longer context actually change during decode?
 
 The dependency chain is still one generated position after another regardless of context length.
 
@@ -559,7 +615,11 @@ requires work that grows with $t$.
 
 So output generation remains sequential, while the per-token cost can also rise as context grows.
 
-## Question 15 — What are TTFT and inter-token latency?
+### Story Bridge 15 — Turn the Computation Story Into User-Visible Time
+
+We now have two distinct phases with different behavior: a prompt-heavy prefill and a token-by-token decode loop. Users experience those phases differently. That motivates two latency measurements—time to first token and the delay between later output tokens.
+
+## Question 15 — How do prefill and sequential decode show up in the latency a user actually experiences?
 
 Two latency concepts help separate prefill from decode.
 
@@ -595,7 +655,11 @@ The delay between successive streamed output tokens is often called inter-token 
 
 **TTFT is dominated by getting to the first token; subsequent responsiveness is governed by decode-step latency.**
 
-## Question 16 — Can we quantify the sequential critical path?
+### Story Bridge 16 — Once Latency Has a Name, We Can Put Numbers on It
+
+TTFT separates the cost of reaching the first token from the repeated cost of producing later tokens. If each decode iteration takes some amount of time, then a long answer accumulates those dependent steps along a critical path. A simple numerical estimate makes that cost concrete.
+
+## Question 16 — Can we estimate how much latency the sequential decode chain adds?
 
 Suppose a response generates:
 
@@ -621,7 +685,11 @@ This assumes no overlap, no scheduling delays, and constant decode time. Real se
 
 The important idea is that one request cannot simply run all 100 dependent decode positions simultaneously.
 
-## Question 17 — Are there techniques that partially reduce sequential-generation latency?
+### Story Bridge 17 — The Dependency Is Real, but We Can Sometimes Advance More Than One Token per Target Cycle
+
+The critical-path calculation makes the limitation uncomfortable: many accepted tokens can mean many target-model decode cycles. That naturally leads to techniques such as speculative decoding, which try to preserve the target model's autoregressive behavior while reducing how often the expensive target must advance one step at a time.
+
+## Question 17 — Can we reduce the number of target-model sequential steps without changing the final autoregressive rule?
 
 Yes, but they do not erase the logical autoregressive dependency.
 
@@ -648,7 +716,11 @@ When several drafted tokens are accepted, the target model can advance multiple 
 
 However, the final accepted sequence must still be consistent with the target model's decoding rule. Speculation is an optimization around the dependency, not proof that autoregressive generation no longer depends on previous accepted tokens.
 
-## Question 18 — Could a different model architecture generate all tokens in parallel?
+### Story Bridge 18 — Separate a GPT Design Choice From a Universal Law
+
+Speculative decoding works around the autoregressive dependency rather than eliminating it. That raises a broader architectural question: is token-by-token generation unavoidable for every sequence model, or is it a consequence of the particular probability factorization used by GPT-style decoders?
+
+## Question 18 — Is sequential generation fundamental to all sequence models, or mainly to autoregressive architectures?
 
 Potentially, yes. Non-autoregressive sequence models attempt to predict multiple output positions simultaneously or iteratively refine a sequence.
 
@@ -661,7 +733,11 @@ $$
 
 The sequential behavior described in this syllabus follows from that modeling choice.
 
-## Question 19 — What is the final mental model for sequential generation?
+### Story Bridge 19 — Reconstruct the Whole Story Before Moving to Cost
+
+We have followed the argument from chain-rule dependence to prefill, decode, masking, teacher forcing, decoding strategies, batching, KV caching, latency, and speculative decoding. Before asking why inference is expensive, we should compress these ideas into one picture that can be reconstructed from memory.
+
+## Question 19 — How can we compress the entire sequential-generation story into one mental model?
 
 ~~~text
 PREFILL
@@ -697,7 +773,11 @@ The core principle is:
 
 # 8.15 Why Inference Is Expensive
 
-## Question 1 — If inference uses only forward passes, why is it still expensive?
+### Story Bridge 20 — Sequential Decode Tells Us How Often the Model Runs; Now Ask How Expensive Each Run Is
+
+Section 8.14 established that long outputs can require many dependent forward passes. Training is obviously expensive because it also performs backward passes and optimizer work, but inference removes those pieces. The next question is why repeated **forward-only** execution of a large model is still a major systems cost.
+
+## Question 1 — If inference avoids backpropagation, why can serving an LLM still be expensive?
 
 Inference avoids backpropagation and optimizer updates, so one training step is much more expensive than one inference forward pass.
 
@@ -714,7 +794,11 @@ But modern LLM inference is still costly because:
 
 The absence of backpropagation does not make a 7B, 70B, or larger model small.
 
-## Question 2 — How much memory do model weights require?
+### Story Bridge 21 — Start With the Object That Must Be Present for Every Forward Pass
+
+The first source of cost is simply the size of the model itself. Billions of parameters must live somewhere before the first token can be processed. So we begin with the simplest capacity calculation: parameter count multiplied by bytes per parameter.
+
+## Question 2 — Before doing any computation, how much memory do the model weights alone require?
 
 A first approximation is:
 
@@ -777,7 +861,11 @@ $$
 
 Real quantized formats can require additional scales, metadata, padding, and kernels, so these are first-order estimates.
 
-## Question 3 — Why do weights matter repeatedly during decode?
+### Story Bridge 22 — Fitting in Memory Does Not Mean the Data Stops Moving
+
+Knowing the weight footprint tells us whether the model fits, but not how quickly it runs. During every forward pass those matrices must be consumed by the accelerator's compute units through its memory hierarchy. So resident weights remain part of the per-token cost.
+
+## Question 3 — If the weights already fit in GPU memory, why do they still cost us on every decode step?
 
 Every generated token must pass through the Transformer layers.
 
@@ -793,7 +881,11 @@ The model does not load its weights from disk for every token; weights remain re
 
 At small batch sizes, repeatedly streaming very large weight matrices can make decode **memory-bandwidth limited**.
 
-## Question 4 — What does "memory-bandwidth limited" mean?
+### Story Bridge 23 — Compute Is Only Fast When the Hardware Can Feed It
+
+Repeatedly using large weight matrices exposes a hardware limit that raw FLOPs do not capture: the rate at which bytes can be delivered to the compute units. This is where arithmetic intensity and memory bandwidth become central to understanding decode performance.
+
+## Question 4 — Why can moving model data be the bottleneck even on a GPU with enormous FLOPs?
 
 A processor has at least two relevant resource ceilings:
 
@@ -816,7 +908,11 @@ The hardware can therefore spend substantial time waiting on memory movement rat
 
 This is why a GPU with enormous theoretical FLOPs can still have disappointing per-token latency on a large model.
 
-## Question 5 — Is prefill expensive for the same reason as decode?
+### Story Bridge 24 — The Same Model Can Stress Hardware Differently in Different Phases
+
+Decode can be bandwidth-sensitive because a small amount of new-token work repeatedly touches large weight matrices. Prefill, however, processes many known token positions together and can reuse those weights across larger matrix operations. We therefore need to separate the typical bottlenecks of the two phases.
+
+## Question 5 — Do prefill and decode hit the same hardware bottleneck?
 
 Not exactly.
 
@@ -846,7 +942,11 @@ Decode
 
 Real kernels, batch sizes, architectures, and hardware can shift the exact bottleneck.
 
-## Question 6 — Can we estimate dense-model arithmetic per generated token?
+### Story Bridge 25 — After Memory Movement, Quantify the Arithmetic Scale
+
+The compute-vs-bandwidth distinction tells us *what may bottleneck*, but we still need a sense of scale. A useful first-order estimate relates dense-model work to the number of parameters, giving us a rough FLOPs-per-token rule.
+
+## Question 6 — Can we build a rough compute estimate for one token of dense-model inference?
 
 A rough rule of thumb for a dense Transformer is that a forward pass requires on the order of:
 
@@ -890,7 +990,11 @@ or roughly 140 GFLOPs per token before accounting for other work.
 
 The important lesson is not the exact number; it is that **every output token invokes billions of parameter operations**.
 
-## Question 7 — Why doesn't the 2P estimate fully explain long-context inference cost?
+### Story Bridge 26 — Parameter Work Is Not the Only Work
+
+The $2P$ rule captures the large parameterized matrix multiplications, but decode also performs attention over the growing history. As context length increases, that sequence-dependent work becomes increasingly visible. So the next step is to add the cost that parameter count alone misses.
+
+## Question 7 — Why does the rough $2P$ compute rule become incomplete as context grows?
 
 Because attention introduces sequence-length-dependent work.
 
@@ -930,7 +1034,11 @@ which also scales with sequence length.
 
 So even with KV caching, attention work and cache reads grow as the context becomes longer.
 
-## Question 8 — What would happen without a KV cache?
+### Story Bridge 27 — Long History Would Be Far Worse If We Recomputed It Every Time
+
+Attention already becomes more expensive as the history grows. Without reuse, each new output token could also force the model to recompute representations for the entire old prefix. This is the exact redundancy that KV caching is designed to remove.
+
+## Question 8 — If attention needs the whole history, what would decoding cost without a KV cache?
 
 Without a KV cache, every decode iteration would need to recompute representations for old tokens.
 
@@ -948,7 +1056,11 @@ This changes decoding from repeated full-prefix recomputation to incremental pro
 
 **KV caching is one of the central reasons autoregressive inference is practical.**
 
-## Question 9 — Does the KV cache make inference free after the weights are loaded?
+### Story Bridge 28 — KV Cache Removes Redundant Work, Not the Forward Pass
+
+KV caching transforms decoding from repeated full-prefix recomputation into incremental processing, which is a huge win. But the new token still has to pass through every Transformer layer, attend to history, update the cache, and produce vocabulary logits. We now need to identify what remains expensive.
+
+## Question 9 — Once historical K/V are cached, what expensive work still remains?
 
 No.
 
@@ -964,7 +1076,11 @@ The KV cache eliminates repeated K/V computation for historical tokens, but the 
 
 KV cache trades **extra memory** for **less recomputation**.
 
-## Question 10 — How large can the KV cache become?
+### Story Bridge 29 — The Optimization Creates a New Resource Cost
+
+KV caching trades computation for stored state. Every active sequence keeps Keys and Values across layers and positions, so longer contexts and larger batches can consume substantial accelerator memory. This tradeoff is important enough to quantify directly.
+
+## Question 10 — KV caching saves compute, but how much memory can the cache consume?
 
 A useful first-order estimate is:
 
@@ -1046,7 +1162,11 @@ $$
 
 This illustrates why long contexts and large batches consume substantial memory even when model weights already fit.
 
-## Question 11 — Why do MQA and GQA help inference?
+### Story Bridge 30 — Once KV Memory Is the Problem, Reduce the Number of Stored KV Heads
+
+The KV-memory formula shows exactly which dimensions drive cache size. One particularly useful lever is the number of Key/Value heads. MQA and GQA exploit that lever by sharing or grouping K/V projections across query heads.
+
+## Question 11 — If KV-cache memory is large, how do MQA and GQA reduce it?
 
 Standard multi-head attention may use many Key/Value heads.
 
@@ -1064,7 +1184,11 @@ reducing the number of KV heads directly reduces cache size and the amount of K/
 
 This can substantially improve serving efficiency, especially for long context and large batch sizes.
 
-## Question 12 — How does prompt length affect inference cost?
+### Story Bridge 31 — Context Length Starts Costing Us Before the First Output Token
+
+Reducing KV heads helps with stored history, but the number of prompt positions still matters. A longer prompt increases the work required to build the initial states and also makes the very first decode step start with a larger cache.
+
+## Question 12 — How does a longer prompt change both prefill cost and the decode steps that follow?
 
 Prompt length affects both prefill and later decode.
 
@@ -1097,7 +1221,11 @@ A longer prompt can increase:
 - KV-cache memory.
 - Per-token attention work during decode.
 
-## Question 13 — Is attention always the dominant inference cost?
+### Story Bridge 32 — Do Not Turn One Important Bottleneck Into a Universal Rule
+
+Long prompts and long histories make attention increasingly important, but dense projections and MLPs also process enormous parameter matrices. Which component dominates depends on architecture, sequence length, batch size, precision, and hardware.
+
+## Question 13 — With long-context attention growing, does attention always dominate inference cost?
 
 No.
 
@@ -1119,7 +1247,11 @@ The dominant bottleneck depends on:
 - Accelerator architecture.
 - Kernel implementation.
 
-## Question 14 — What does the LM head cost?
+### Story Bridge 33 — The Forward Pass Is Not Finished Until We Produce Vocabulary Scores
+
+Even if we understand the Transformer blocks, generation still needs a score for every candidate token. The final hidden state must be projected into vocabulary-sized logits, which can itself involve a large matrix.
+
+## Question 14 — After the Transformer layers finish, what does projecting to the vocabulary cost?
 
 After the final Transformer hidden state:
 
@@ -1171,7 +1303,11 @@ weight entries.
 
 Weight tying and optimized kernels can affect storage and execution, but the model still needs to produce vocabulary-scale scores for token selection.
 
-## Question 15 — Is softmax over the vocabulary a major cost?
+### Story Bridge 34 — Logits Still Need to Become a Token
+
+The LM head gives us vocabulary-scale logits, but the runtime may still apply softmax, top-k, top-p, penalties, masks, and sampling. Those operations matter, yet we need to place them in proportion to the cost of the full Transformer forward pass.
+
+## Question 15 — Once vocabulary logits exist, do softmax and token-selection operations dominate the cost?
 
 It can matter, especially for large vocabularies and large batches, but it is often not the dominant cost compared with running the full Transformer.
 
@@ -1196,7 +1332,11 @@ Sampling strategies may add operations such as:
 
 These are important, but the Transformer forward pass usually remains the central cost for large models.
 
-## Question 16 — Why does output length strongly affect total inference cost?
+### Story Bridge 35 — Per-Token Cost Becomes Request Cost Through Repetition
+
+We now understand many costs of one forward step: weights, attention, KV traffic, vocabulary projection, and token selection. Autoregressive generation repeats that machinery for each accepted output token. Output length therefore turns per-token expense into end-to-end request expense.
+
+## Question 16 — If one token is expensive, why does a long output multiply that cost so strongly?
 
 If a request produces $N$ output tokens after the initial prefill, it requires roughly $N$ sequential generation decisions and nearly that many decode forward passes, depending on how the first token is counted.
 
@@ -1223,7 +1363,11 @@ Longer output means:
 
 This is why a short prompt with a very long answer can still be expensive.
 
-## Question 17 — Can you compare prompt-heavy and output-heavy requests?
+### Story Bridge 36 — Not All Long Requests Stress the Same Phase
+
+Output length mainly stretches the sequential decode path, while prompt length mainly increases prefill and the starting context size. Two requests with similar total token counts can therefore have very different latency profiles and hardware pressure.
+
+## Question 17 — How do long-prompt and long-output requests become expensive in different ways?
 
 Consider two simplified requests.
 
@@ -1257,40 +1401,12 @@ Long output
 
 Both can be expensive in different ways.
 
-### Story Bridge 1 — From One Request to a Production Server
 
-So far, we have mostly followed **one request** through inference.
+### Story Bridge 37 — Move From One Request to a Production Server
 
-That was useful because it let us understand the cost of a single prompt and a single generated answer:
+So far we have mostly followed one request. A real inference service has many users competing for the same accelerator, and the best strategy for total hardware utilization may not minimize each individual's wait. That creates the fundamental serving distinction between **latency** and **throughput**.
 
-~~~text
-One user
-   ↓
-Prompt prefill
-   ↓
-Sequential decode
-   ↓
-Repeated model execution
-   ↓
-Latency + KV-cache growth
-~~~
-
-But a real inference server does not usually serve only one person.
-
-Now imagine that while our first user is waiting for tokens, hundreds or thousands of other users also send prompts. The GPU is expensive, so leaving parts of it idle while serving requests one by one would waste hardware capacity.
-
-This creates the next systems problem:
-
-> **How do we serve many users efficiently without making each individual user wait too long?**
-
-That question naturally leads to two ideas that are easy to confuse:
-
-- **Latency:** How long one user waits.
-- **Throughput:** How much total work the server completes.
-
-Once that distinction is clear, batching becomes much easier to understand: batching is not primarily about changing the model's mathematics; it is about using the hardware more efficiently across many simultaneous requests.
-
-## Question 18 — What is latency versus throughput?
+## Question 18 — Once many users share the server, how do latency and throughput become different goals?
 
 These terms describe different objectives.
 
@@ -1324,7 +1440,11 @@ A serving optimization can improve throughput while making an individual request
 
 For example, waiting briefly to form a larger batch may improve accelerator utilization while increasing queueing latency.
 
-## Question 19 — Why does batching improve throughput?
+### Story Bridge 38 — Many Sequential Requests Can Still Share the Same Weight Execution
+
+Once throughput matters, serving requests one at a time can waste accelerator capacity. By grouping current work from several requests, the system can reuse weights more effectively and turn many small operations into larger, more efficient matrix computations.
+
+## Question 19 — If requests are independent, why does batching them improve total throughput?
 
 Suppose a model must apply the same weight matrix to several active sequences.
 
@@ -1345,7 +1465,11 @@ But a larger batch also requires:
 
 Batching is a throughput optimization, not removal of per-request autoregressive dependence.
 
-## Question 20 — What is continuous batching?
+### Story Bridge 39 — Static Batches Waste Capacity When Sequence Lengths Differ
+
+Batching improves utilization, but LLM requests rarely produce exactly the same number of output tokens. If the server waits for every sequence in a static batch to finish, completed slots sit idle. Continuous batching solves that scheduling problem by changing the active set over time.
+
+## Question 20 — What happens when requests in the same batch finish at different times?
 
 Traditional static batching might wait for all requests in a batch to finish before forming the next batch.
 
@@ -1374,7 +1498,11 @@ This keeps the accelerator busy and improves serving throughput.
 
 Each individual sequence is still decoded autoregressively.
 
-## Question 21 — Why can long output hurt batching efficiency?
+### Story Bridge 40 — Variable Lifetimes Turn Output Length Into a Shared Resource Problem
+
+Continuous batching can replace finished requests, but a long-running request still keeps its KV state and decode slot active for many more steps. This means output length affects not only one user's latency, but also memory pressure and admission capacity for everyone else.
+
+## Question 21 — Why can one very long response keep consuming shared serving resources after shorter requests finish?
 
 Requests often finish at different times.
 
@@ -1389,40 +1517,12 @@ Long outputs can:
 
 This is why output-length distributions matter for serving capacity planning.
 
-### Story Bridge 2 — Batching Solves Utilization, but Creates Memory Pressure
 
-We have now moved from one request to **many concurrent requests**.
+### Story Bridge 41 — Batching Improves Utilization Until Capacity Becomes the Next Limit
 
-Batching helps the GPU do more useful work at once, and continuous batching prevents finished requests from leaving empty slots. But this creates a new pressure:
+As concurrency grows, KV memory accumulates; as model size grows, the weights themselves may exceed one accelerator's capacity. At that point the serving problem expands from using one GPU efficiently to distributing model execution across multiple devices.
 
-~~~text
-More active requests
-        ↓
-More active sequence histories
-        ↓
-More KV-cache memory
-        ↓
-More accelerator memory consumed
-~~~
-
-A short request may leave quickly, while a long request can keep its KV cache alive for hundreds or thousands of decode steps.
-
-At some point, two different limits can appear:
-
-1. The **requests' KV caches** consume a large fraction of accelerator memory.
-2. The **model weights themselves** may be too large for a single GPU.
-
-So the story now changes from:
-
-> "How do we keep one GPU busy?"
-
-to:
-
-> **"What do we do when one GPU is no longer enough?"**
-
-That is why multi-GPU inference appears next. It is not an isolated topic; it is a consequence of model size, concurrency, and memory pressure.
-
-## Question 22 — Why are large models often split across multiple GPUs?
+## Question 22 — What do we do when one GPU is no longer enough for the model or the serving load?
 
 A model may not fit on one accelerator, or one accelerator may not provide enough compute or memory bandwidth.
 
@@ -1437,7 +1537,11 @@ Multi-device inference introduces communication overhead.
 
 The system may need to exchange partial activations or reductions every layer or group of layers, so network interconnect bandwidth and latency become part of inference performance.
 
-## Question 23 — Why can communication become a bottleneck?
+### Story Bridge 42 — More Devices Add Capacity but Also Add Synchronization
+
+Multi-GPU execution gives us more memory and compute, but model shards must exchange activations or partial results. Decode is latency-sensitive, so communication repeated across many layers and output tokens can become as important as arithmetic itself.
+
+## Question 23 — Once the model is split across GPUs, why can communication become the new bottleneck?
 
 Suppose a tensor-parallel layer splits a matrix operation across multiple GPUs.
 
@@ -1452,55 +1556,12 @@ Therefore, inference performance depends not only on GPU compute but also on:
 - Collective communication implementation.
 - Parallelism strategy.
 
-### Story Bridge 3 — Once Multiple GPUs Work Together, Data Movement Becomes the Enemy
 
-Splitting a large model across several GPUs solves a capacity problem, but it introduces a new cost: **communication**.
+### Story Bridge 43 — Once Data Movement Is Expensive, Reduce the Number of Bits
 
-Now every generated token may involve not only local computation, but also data movement:
+The communication and bandwidth story reveals a broader principle: inference cost is often about **bytes moved**, not only operations performed. Quantization attacks that problem directly by representing weights—and sometimes other tensors—with fewer bits.
 
-~~~text
-GPU computation
-     ↓
-Exchange partial results
-     ↓
-Synchronize
-     ↓
-Next layer / next operation
-~~~
-
-This reveals a broader principle:
-
-> **Inference performance is often limited not only by how much arithmetic we perform, but by how much data we have to move.**
-
-Once we recognize data movement as a major cost, the next family of optimizations becomes intuitive.
-
-Instead of asking only:
-
-> "How can we calculate faster?"
-
-we also ask:
-
-> **"Can we move fewer bytes, store less data, or avoid repeating work?"**
-
-That question leads directly to:
-
-~~~text
-Too many weight bytes
-    → Quantization
-
-Repeated identical prompt work
-    → Prefix caching
-
-KV memory fragmentation
-    → Paged KV cache
-
-Too much attention-memory traffic
-    → FlashAttention
-~~~
-
-These optimizations attack different bottlenecks, but they all arise from the same systems problem: **expensive movement and management of data**.
-
-## Question 24 — How does quantization reduce inference cost?
+## Question 24 — If moving and storing weights is expensive, how does quantization attack that bottleneck?
 
 Quantization stores weights, and sometimes activations or KV cache, using fewer bits.
 
@@ -1524,7 +1585,11 @@ But quantization can also introduce:
 
 Smaller bit width does not automatically guarantee proportional speedup.
 
-## Question 25 — How does prefix caching help?
+### Story Bridge 44 — Some Work Is Expensive Only Because We Repeat It
+
+Quantization reduces the cost of moving model data, but another waste source is repeated computation. Applications often send identical system prompts, documents, or instruction prefixes. If those tokenized prefixes are identical, their prefill state can potentially be reused.
+
+## Question 25 — If many requests repeat the same prompt prefix, why recompute that prefill every time?
 
 Many requests may share an identical prefix, such as:
 
@@ -1538,7 +1603,11 @@ This can reduce repeated prefill work and improve TTFT.
 
 Prefix caching does not remove decode costs after requests diverge.
 
-## Question 26 — What is paged KV-cache management?
+### Story Bridge 45 — Saving KV Is Not Enough; We Must Allocate It Well
+
+Prefix caching reuses useful state, while continuous batching constantly adds and removes requests of different lengths. That makes KV memory dynamic and prone to fragmentation. Paged KV management addresses **where and how** the cached blocks are allocated.
+
+## Question 26 — If many variable-length requests keep KV state alive, how can the server manage that memory efficiently?
 
 Traditional KV allocation can waste memory because requests have different sequence lengths and finish at different times.
 
@@ -1553,7 +1622,11 @@ Benefits can include:
 
 Paged cache management optimizes **where KV data lives**, not the mathematical autoregressive dependency.
 
-## Question 27 — How does FlashAttention help?
+### Story Bridge 46 — Optimize Attention by Changing the Execution, Not the Mathematics
+
+Paged KV management improves storage layout, but attention itself can still move large intermediate tensors through memory. FlashAttention-style methods reduce that traffic by reorganizing the computation while preserving the same mathematical attention result.
+
+## Question 27 — If attention moves too much intermediate data, how does FlashAttention improve execution?
 
 Standard attention can generate large intermediate matrices and move substantial data between high-bandwidth memory and on-chip memory.
 
@@ -1574,43 +1647,12 @@ $$
 
 It changes **how the computation is executed**.
 
-### Story Bridge 4 — Now Stress-Test the System with a Very Long Context
 
-At this point we have several tools:
+### Story Bridge 47 — Long Context Is the Stress Test That Makes Several Bottlenecks Collide
 
-- KV caching avoids recomputing old K/V.
-- Quantization reduces weight size and bandwidth demand.
-- Prefix caching avoids repeated prompt work.
-- Paged KV-cache management improves memory allocation.
-- FlashAttention reduces attention-related memory traffic.
+We now have tools for weights, KV memory, repeated prefixes, memory allocation, and attention traffic. Increase the context dramatically and several pressures rise together: prefill work, KV capacity, decode reads, memory bandwidth, and reduced concurrency.
 
-Everything may look manageable for ordinary sequence lengths.
-
-Now imagine changing only one thing:
-
-> **Instead of a few thousand tokens of context, suppose the model must work with tens of thousands—or more.**
-
-Suddenly, several earlier costs grow at the same time:
-
-~~~text
-Longer prompt
-    ↓
-More prefill work
-    ↓
-Larger KV cache
-    ↓
-More historical K/V to read during decode
-    ↓
-Less memory available for concurrent users
-    ↓
-Greater bandwidth pressure
-~~~
-
-This makes long context a useful **stress test** for the entire inference system.
-
-It brings together ideas that previously looked separate: attention complexity, KV-cache capacity, decode bandwidth, batching, and serving concurrency.
-
-## Question 28 — Why is long-context inference especially challenging?
+## Question 28 — What happens when we stress all of these mechanisms with a very long context?
 
 Long context affects several resources simultaneously:
 
@@ -1622,7 +1664,11 @@ Long context affects several resources simultaneously:
 
 Long context is therefore not just a token-count issue; it is a compute, bandwidth, and memory-capacity problem.
 
-## Question 29 — What does "prefill is compute-bound and decode is memory-bound" really mean?
+### Story Bridge 48 — Turn the Detailed Cost Story Into a Hardware Heuristic
+
+Long-context inference shows that bottlenecks can shift with workload shape. Still, practitioners often summarize serving behavior with one useful heuristic: prefill tends to be more compute-oriented, while low-batch decode tends to be more bandwidth-oriented. We need to understand both the intuition and the limits of that rule.
+
+## Question 29 — After seeing all these costs, when is "prefill compute-bound, decode memory-bound" a useful rule?
 
 It is a useful heuristic, not an absolute law.
 
@@ -1650,7 +1696,11 @@ $$
 \text{kernels}
 $$
 
-## Question 30 — Why can a 70B model be slower than a 7B model even if both fit in memory?
+### Story Bridge 49 — Capacity Is Only One Dimension of Model Size
+
+The compute-vs-bandwidth heuristic explains why fitting a model is not the same as serving it quickly. A larger dense model carries more parameters through every token step, increasing arithmetic, movement, and often communication even when sufficient memory exists.
+
+## Question 30 — If both models fit in memory, why is a 70B dense model still usually slower than a 7B model?
 
 A 70B dense model has roughly ten times as many parameters as a 7B model.
 
@@ -1664,7 +1714,11 @@ That generally means:
 
 Even if enough memory exists, repeatedly executing a much larger model for every output token increases latency and reduces the number of concurrent requests a fixed hardware pool can serve.
 
-## Question 31 — Why isn't peak GPU FLOPs enough to predict LLM inference speed?
+### Story Bridge 50 — A Fast Arithmetic Engine Can Still Wait on Everything Around It
+
+The 70B-versus-7B comparison reinforces that runtime depends on more than raw operation count. Bandwidth, KV traffic, communication, batch shape, kernels, scheduling, and memory management can all prevent the GPU from approaching its theoretical arithmetic peak.
+
+## Question 31 — Why can't we predict LLM serving speed from peak GPU FLOPs alone?
 
 Peak FLOPs assume the hardware can keep arithmetic units fully utilized.
 
@@ -1683,7 +1737,11 @@ A complete performance analysis must consider the whole execution pipeline.
 
 This is why **tokens per second cannot be predicted from theoretical FLOPs alone**.
 
-## Question 32 — Can we build a simple request-cost mental model?
+### Story Bridge 51 — Many Bottlenecks Need One Organizing Equation
+
+At this point we have accumulated many costs: queueing, prefill, decode, weights, KV state, activations, communication, and runtime overhead. Rather than memorize them separately, we can organize them into a simple latency-and-memory decomposition.
+
+## Question 32 — Can we combine compute, memory, and scheduling into one simple request-cost model?
 
 A useful high-level decomposition is:
 
@@ -1723,41 +1781,12 @@ $$
 
 This is not a precise capacity-planning equation, but it organizes the major components.
 
-### Story Bridge 5 — Put Yourself Inside the Inference Server
 
-We now have all the individual pieces. Before discussing the final optimization map, it helps to stop treating them as separate concepts.
+### Story Bridge 52 — Put Yourself Inside the Inference Server
 
-Imagine that you are the inference server and a request arrives.
+The cost model gives us the pieces, but retention improves when we watch those pieces appear in sequence. So now we follow one concrete request through weight residency, prefill, first-token production, hundreds of decode steps, and a growing KV cache.
 
-You have to answer, in order:
-
-~~~text
-1. Can the model weights fit?
-        ↓
-2. How expensive is the prompt prefill?
-        ↓
-3. How much KV cache must be created?
-        ↓
-4. How quickly can I return the first token?
-        ↓
-5. How many sequential decode steps will follow?
-        ↓
-6. How much weight and KV data must move per step?
-        ↓
-7. Are other requests sharing the hardware?
-        ↓
-8. Will batching improve throughput?
-        ↓
-9. Does this request stay alive long enough to hold scarce KV memory?
-        ↓
-10. Do I need multiple GPUs or another optimization?
-~~~
-
-This is the point where the chapter becomes one connected system rather than a collection of terms.
-
-The next worked example follows one request from **arrival to completion** and lets us see where each cost enters.
-
-## Question 33 — What is a worked end-to-end example?
+## Question 33 — What does the full cost story look like for one request from arrival to completion?
 
 Consider a hypothetical model with:
 
@@ -1815,7 +1844,11 @@ The request cost is a combination of:
 
 This example shows why both prompt length and output length matter, but in different ways.
 
-## Question 34 — Which optimizations attack which bottlenecks?
+### Story Bridge 53 — Optimization Only Makes Sense After the Bottleneck Is Named
+
+The end-to-end example shows that no single resource dominates every request. That means optimization should be diagnostic: remove recomputation with KV cache, reduce bytes with quantization, manage KV memory with paging, improve attention traffic with FlashAttention, and so on.
+
+## Question 34 — Once we can locate each bottleneck, which optimization should attack which one?
 
 | Optimization | Mainly helps |
 |---|---|
@@ -1833,7 +1866,11 @@ This example shows why both prompt length and output length matter, but in diffe
 
 No single optimization eliminates every cost.
 
-## Question 35 — What is the final answer to "Why is LLM inference expensive?"
+### Story Bridge 54 — Finish by Reconstructing the Whole System, Not Memorizing a List
+
+We can now trace inference cost from a single autoregressive token all the way to production serving across devices. The final step is to compress model size, repeated decode, memory bandwidth, KV growth, long context, batching, and communication into one coherent explanation.
+
+## Question 35 — How can we compress the whole chapter into one answer to "Why is LLM inference expensive?"
 
 Because a large model must repeatedly execute billions of parameter operations while moving large quantities of weight and KV-cache data, and autoregressive generation requires those forward passes to occur along a sequential output-token dependency chain.
 
