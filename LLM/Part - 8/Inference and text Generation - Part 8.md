@@ -25,11 +25,9 @@ Part 8 connects all of those ideas into a **systems-level explanation**:
 For an autoregressive language model, a generated sequence is factorized as:
 
 $$
-P(y_{1:T}\mid x)
-=
-\prod_{t=1}^{T}
-P(y_t\mid x,y_{<t})
+P(y_{1:T} \vert x) = \prod_{t=1}^{T} P(y_t \vert x, y_{\lt t})
 $$
+
 
 where:
 
