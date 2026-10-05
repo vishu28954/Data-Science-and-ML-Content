@@ -15,6 +15,14 @@ Stop tokens or configured stop sequences can terminate an answer before its budg
 
 # 8.12 Stop Tokens
 
+### Story Bridge 1 — A Decoder Can Keep Going, So Something Must End the Loop
+
+Parts 1–6 taught us how the model repeatedly predicts and selects the next token. But that process, by itself, does not answer one basic question:
+
+> **When should generation end?**
+
+If every selected token simply becomes the context for another prediction, the model can keep extending the sequence. Before we discuss EOS, custom stop markers, or length limits, we first need to understand why an autoregressive decoder requires an explicit stopping mechanism.
+
 ## Question 1 — If autoregressive generation can keep predicting tokens, what actually tells it to stop?
 
 At each position, a decoder-only language model predicts a distribution for the next token:
@@ -28,6 +36,8 @@ Here $x$ is the prompt, $y_{1:t}$ is the generated continuation so far, and $y_{
 Next-token prediction alone does not enforce an ending. A serving system therefore needs stopping criteria, including recognized ending tokens, custom stop conditions, and an output-token budget.
 
 A generation request may finish naturally after a few tokens or be interrupted mechanically at its configured limit.
+
+### Story Bridge 2 — From Needing a Stop to Learning an Ending Signal
 
 So we know the decode loop needs some way to terminate. The next question is whether the **model itself can produce a learned ending signal**, rather than relying only on an external counter.
 
@@ -44,6 +54,8 @@ Different model families use different token spellings and IDs. Examples of visi
 ~~~
 
 These markers are **not universally interchangeable**. Some chat formats distinguish end of message, end of assistant turn, and control handoff. Inspect the tokenizer and chat template to determine which marker should terminate a particular response.
+
+### Story Bridge 3 — If EOS Is Learned, It Must Compete During Token Selection
 
 EOS gives us a learned ending marker. But the model must still decide *when* to use it. That means EOS has to participate in the same prediction process as ordinary next-token candidates.
 
@@ -65,6 +77,8 @@ With greedy decoding, EOS is selected because it has the highest probability. Wi
 A high EOS probability does not itself stop generation: the relevant EOS token must actually be selected and recognized by the runtime.
 
 
+### Story Bridge 4 — From EOS Probability to Runtime Behavior
+
 Now EOS exists inside the probability distribution. The next step is to connect that model-side probability to the running inference loop: **what changes once EOS actually wins token selection?**
 
 ## Question 4 — Once EOS is selected, what exactly happens in the decode loop?
@@ -80,6 +94,8 @@ A typical generation loop does the following:
 Serving implementations may store EOS internally while hiding its special-token spelling from returned text.
 
 **Important distinction:** The first generated token can be selected directly from prefill logits. A separate one-token decode forward pass is not needed before that first selection.
+
+### Story Bridge 5 — Looking Finished Is Not the Same as Being Stopped
 
 A recognized EOS can stop the loop immediately. But humans often judge an answer as “finished” from its words or punctuation. We therefore need to separate **semantic-looking completion** from an actual runtime stopping signal.
 
@@ -103,6 +119,8 @@ Next selected token: an ordinary text token
 
 Punctuation and newlines are likewise not universal stopping signals.
 
+### Story Bridge 6 — Applications Sometimes Need Their Own Ending Rule
+
 If ordinary text does not automatically stop generation, an application may still want its own delimiter or protocol marker. That creates a second type of stopping mechanism: **custom stop sequences**.
 
 ## Question 6 — What if the application wants to stop on something other than EOS?
@@ -124,6 +142,8 @@ A custom marker can span several tokenizer tokens. Its detection may be based on
 | Can span multiple tokens? | Generally one ID | Yes |
 | Typical detection | Selected special token | Runtime pattern matching |
 | Returned to user? | Often hidden | Depends on API |
+
+### Story Bridge 7 — A Text Marker May Span Several Tokens
 
 A custom marker looks simple as text, but tokenization can split it into several pieces. The runtime therefore has to decide whether it has seen a complete delimiter or only the beginning of one.
 
@@ -148,6 +168,8 @@ A streaming implementation needs to consider **partial matches**. It may tempora
 This is why streamed output and the final returned text may differ near a custom stop boundary. Exact inclusion/exclusion behavior depends on the serving API.
 
 
+### Story Bridge 8 — Real Requests Can Have Several Exit Doors
+
 We now have more than one possible exit from the decode loop: EOS, custom delimiters, and other runtime conditions. A real request therefore needs a policy for handling several possible stopping criteria together.
 
 ## Question 8 — What if several stopping conditions are active at the same time?
@@ -159,6 +181,8 @@ The first applicable condition encountered under the implementation's evaluation
 If the API returns a finish reason, it may distinguish normal stopping from length exhaustion. Finish-reason field names are provider-specific.
 
 Distinguish **the model selecting EOS** from **the runtime detecting a text stop marker** and from **exhausting the output budget**.
+
+### Story Bridge 9 — Stopping Depends on Which Candidates the Decoder Allows
 
 Those stopping rules matter only if the decoding process actually allows the relevant ending candidate to survive. So the next issue is how greedy decoding, sampling filters, and beam search interact with EOS.
 
@@ -316,6 +340,8 @@ Select best completed result under configured scoring
 
 ---
 
+### Story Bridge 10 — Before Leaving Stop Tokens, Resolve the Remaining Edge Cases
+
 Beam search shows that even “EOS was generated” can have different meanings depending on whether we are following one sequence or several hypotheses. Before leaving stop tokens, we should collect the remaining edge cases that can make stopping behavior surprising.
 
 ## Question 10 — What stop-token edge cases remain before we move to output limits?
@@ -330,6 +356,8 @@ Beam search shows that even “EOS was generated” can have different meanings 
 
 ---
 
+
+### Story Bridge 11 — Natural Endings Are Not Enough
 
 At this point, natural and application-defined stopping are clear. But one problem remains: **what if none of those stopping conditions ever occurs?** A production system still needs a hard boundary on how long generation is allowed to continue. That is the role of maximum output length.
 
@@ -354,6 +382,8 @@ where the counted generated tokens follow the API's conventions. An earlier EOS 
 
 The cap is an **upper bound**, not an instruction to produce exactly that many tokens.
 
+### Story Bridge 12 — Output Budget and Context Capacity Are Different Limits
+
 A hard output cap prevents unbounded generation. But the model already has another limit—the context window. The two limits interact, but they are not the same quantity.
 
 ## Question 2 — Is maximum output length the same thing as the context window?
@@ -375,6 +405,8 @@ $$
 If this condition is not met, the runtime must apply its documented policy, such as rejecting the request, restricting output, or managing context. Some models also have a separate model-specific maximum output cap.
 
 An output budget of 500 tokens does **not** mean the model has only a 500-token context window.
+
+### Story Bridge 13 — The Prompt Consumes Part of the Available Context
 
 Once we separate the output budget from context capacity, we can calculate the practical room left for generation instead of treating the requested maximum as automatically available.
 
@@ -418,6 +450,8 @@ $$
 
 Real systems may reserve special tokens, impose separate output caps, or use other context-management strategies.
 
+
+### Story Bridge 14 — Now Two Independent Stopping Mechanisms Can Compete
 
 Now a request has two independent ways to stop: a recognized ending can occur first, or the mechanical token budget can run out first. The runtime stops according to whichever applicable condition is reached first.
 
@@ -503,6 +537,8 @@ else:
 This is **conceptual pseudocode**, not a universal provider implementation. Real runtimes differ in how they buffer streaming stop sequences, handle multiple active beams or requests, count output tokens, and expose stop reasons.
 
 ---
+
+### Story Bridge 15 — A Counter Does Not Know Whether the Answer Is Complete
 
 The combined example makes the distinction concrete: an EOS stop reflects a recognized ending, while a length stop reflects a counter. That means a length-limited response can end even when the model was still in the middle of expressing something.
 
@@ -680,6 +716,8 @@ The selected token $y_t$ is known **before** the forward pass that predicts $y_{
 
 ---
 
+### Story Bridge 16 — Before Using a Limit, We Must Know What It Counts
+
 Once truncation is possible, the next practical question is what the configured number actually counts. Different APIs may limit newly generated tokens or the total input-plus-output sequence.
 
 ## Question 6 — What exactly does the limit count — new tokens or total sequence length?
@@ -701,6 +739,8 @@ $$
 
 Confirm a particular library's parameter names, precedence rules, reserved special-token accounting, and any model-specific maximum.
 
+
+### Story Bridge 17 — The Budget Unit Is Tokens, Not Human Words
 
 Knowing whether the limit applies to new or total tokens still leaves one basic unit question: the model does not budget output in human words or characters—it works in tokenizer units.
 
@@ -827,6 +867,8 @@ Before concluding that a response "should have had room to finish", identify:
 
 ---
 
+### Story Bridge 18 — A Maximum Is Permission, Not a Target
+
 Real token accounting shows why a configured maximum is only one ceiling among several. A larger ceiling therefore means “generation may continue longer,” not “the model must fill the allowance.”
 
 ## Question 8 — Does a larger output limit force the model to generate a longer answer?
@@ -834,6 +876,8 @@ Real token accounting shows why a configured maximum is only one ceiling among s
 No. A model can select EOS early, or the runtime can detect another configured stop condition, leaving much of the budget unused.
 
 A higher ceiling *permits* longer outputs and increases the possible worst-case runtime. It does not force the model to fill the entire budget.
+
+### Story Bridge 19 — More Output Means More Sequential Decode Work
 
 If a larger budget permits more tokens, the first systems consequence is time: autoregressive generation requires additional sequential decode iterations for additional output positions.
 
@@ -863,6 +907,8 @@ $$
 
 Generating more tokens generally increases decode time. The rate need not be constant: context length, batching, hardware, and memory bandwidth affect individual token latency.
 
+### Story Bridge 20 — More Output Also Means a Larger Cached History
+
 More decode iterations do not only consume time. Every additional generated position can also extend the cached history, so output length has a memory consequence as well.
 
 ## Question 10 — Why does a longer output increase KV-cache requirements?
@@ -891,6 +937,8 @@ Allowing more output tokens raises the potential cached sequence length $T$. Act
 The maximum output budget does not imply that every request consumes its full possible cache allocation.
 
 
+### Story Bridge 21 — A Single Request Becomes a Shared-Serving Problem
+
 For one request, longer output means more latency and potentially more KV memory. In production, many such requests coexist, so their different lifetimes begin to affect the shared batch and scheduler.
 
 ## Question 11 — What happens when requests with very different output lengths are batched together?
@@ -906,6 +954,8 @@ Request C: hits its cap at 200 output tokens
 Serving systems can remove completed requests from the active batch and often schedule waiting requests into newly available capacity.
 
 Stop conditions and output ceilings therefore affect token throughput, active batch composition, waiting time, and maximum resource demand.
+
+### Story Bridge 22 — Finish Reasons Tell Us Which Exit Door Was Used
 
 Once output limits affect both correctness and serving resources, the final practical question is diagnostic: **when a response ends, how do we know whether it ended naturally or because some limit was reached?**
 
