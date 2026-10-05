@@ -92,6 +92,109 @@ $$
 P(y_2\mid x,\text{another token})
 $$
 
+### A simple probability-chain-rule example
+
+The same idea can be understood using the probability chain rule:
+
+$$
+P(y_1,y_2\mid x)
+=
+P(y_1\mid x)\,P(y_2\mid x,y_1)
+$$
+
+Suppose:
+
+$$
+x=\text{"The capital of France is"}
+$$
+
+$$
+y_1=\text{"Paris"}
+$$
+
+and, for simplicity, let:
+
+$$
+y_2=\text{"."}
+$$
+
+Imagine an illustrative collection of 1,000 text situations. The prompt $x$ appears 100 times, and in 80 of those 100 cases the next token is $y_1=\text{"Paris"}$.
+
+Then:
+
+$$
+P(x)=\frac{100}{1000}=0.1
+$$
+
+and:
+
+$$
+P(y_1,x)=\frac{80}{1000}=0.08
+$$
+
+Therefore:
+
+$$
+P(y_1\mid x)
+=
+\frac{P(y_1,x)}{P(x)}
+=
+\frac{0.08}{0.1}
+=
+\frac{80}{100}
+=
+0.8
+$$
+
+Physically, once we know that the prompt $x$ occurred, we restrict attention from all 1,000 situations to the 100 situations containing that prompt. In 80 of those 100 cases, the next token is "Paris".
+
+Now suppose that among those 80 cases containing both $x$ and $y_1=\text{"Paris"}$, 72 are followed by $y_2=\text{"."}$.
+
+Then:
+
+$$
+P(y_2\mid x,y_1)
+=
+\frac{72}{80}
+=
+0.9
+$$
+
+Equivalently:
+
+$$
+P(y_2\mid x,y_1)
+=
+\frac{P(x,y_1,y_2)}{P(x,y_1)}
+=
+\frac{72/1000}{80/1000}
+=
+0.9
+$$
+
+Finally, by the chain rule:
+
+$$
+P(y_1,y_2\mid x)
+=
+P(y_1\mid x)\,P(y_2\mid x,y_1)
+$$
+
+$$
+=0.8\times0.9
+=0.72
+$$
+
+So, in this illustrative counting example, given the prompt $x$, the probability of the two-token continuation "Paris." is 0.72.
+
+The important sequential point is that the second factor is:
+
+$$
+P(y_2\mid x,y_1)
+$$
+
+not merely $P(y_2\mid x)$. The probability distribution for the second generated token is conditioned on whichever first token was actually selected. If $y_1$ changes, the conditional distribution for $y_2$ can also change.
+
 So before the first token is selected, there is no single unique distribution for the second generated token that corresponds to the finally chosen history.
 
 A standard autoregressive decoder therefore cannot exactly produce the entire sampled continuation in one ordinary forward pass.
@@ -997,7 +1100,6 @@ Standard multi-head attention may use many Key/Value heads.
 **Grouped-Query Attention (GQA)** uses fewer KV heads than Query heads.
 
 Since KV-cache memory is proportional to:
-
 $$
 H_{\mathrm{KV}}
 $$
