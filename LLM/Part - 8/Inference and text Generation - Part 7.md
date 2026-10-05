@@ -15,7 +15,7 @@ Stop tokens or configured stop sequences can terminate an answer before its budg
 
 # 8.12 Stop Tokens
 
-## Question 1 — Why does autoregressive generation need a stopping condition?
+## Question 1 — If autoregressive generation can keep predicting tokens, what actually tells it to stop?
 
 At each position, a decoder-only language model predicts a distribution for the next token:
 
@@ -29,7 +29,9 @@ Next-token prediction alone does not enforce an ending. A serving system therefo
 
 A generation request may finish naturally after a few tokens or be interrupted mechanically at its configured limit.
 
-## Question 2 — What is an EOS token?
+So we know the decode loop needs some way to terminate. The next question is whether the **model itself can produce a learned ending signal**, rather than relying only on an external counter.
+
+## Question 2 — Can the model learn its own ending signal — what is EOS?
 
 EOS stands for **end of sequence**. It is typically a dedicated tokenizer token ID that may be predicted at positions where the model has learned a sequence should end.
 
@@ -43,7 +45,9 @@ Different model families use different token spellings and IDs. Examples of visi
 
 These markers are **not universally interchangeable**. Some chat formats distinguish end of message, end of assistant turn, and control handoff. Inspect the tokenizer and chat template to determine which marker should terminate a particular response.
 
-## Question 3 — Does EOS belong to the same vocabulary distribution as ordinary tokens?
+EOS gives us a learned ending marker. But the model must still decide *when* to use it. That means EOS has to participate in the same prediction process as ordinary next-token candidates.
+
+## Question 3 — How can EOS compete with ordinary vocabulary tokens?
 
 Yes, when EOS is an eligible output token. The model can assign EOS a score just as it assigns scores to words, punctuation, and other tokens.
 
@@ -60,45 +64,10 @@ With greedy decoding, EOS is selected because it has the highest probability. Wi
 
 A high EOS probability does not itself stop generation: the relevant EOS token must actually be selected and recognized by the runtime.
 
-### Story Bridge 1 — From EOS Probability to an Actual Stop
 
-We have now answered three foundational questions:
+Now EOS exists inside the probability distribution. The next step is to connect that model-side probability to the running inference loop: **what changes once EOS actually wins token selection?**
 
-~~~text
-Why do we need stopping?
-        ↓
-What is EOS?
-        ↓
-Can EOS be predicted like an ordinary token?
-~~~
-
-At this point, the model side is clear: EOS can simply appear as one candidate in the next-token distribution.
-
-But that creates the next practical question:
-
-> **A probability distribution exists inside the model—but how does that become an actual stopping event in the running inference system?**
-
-This is where we move from **model probability** to **runtime behavior**.
-
-The model selects a token. The serving loop then inspects that selected token and decides whether another decode iteration is necessary.
-
-So the next group of questions follows the path:
-
-~~~text
-Model predicts EOS
-      ↓
-Token gets selected
-      ↓
-Runtime recognizes it
-      ↓
-Should generation stop?
-      ↓
-What if the stopping signal is not EOS at all?
-~~~
-
-That naturally leads us from EOS to custom stop sequences and streaming behavior.
-
-## Question 4 — What happens after EOS is selected?
+## Question 4 — Once EOS is selected, what exactly happens in the decode loop?
 
 A typical generation loop does the following:
 
@@ -112,7 +81,9 @@ Serving implementations may store EOS internally while hiding its special-token 
 
 **Important distinction:** The first generated token can be selected directly from prefill logits. A separate one-token decode forward pass is not needed before that first selection.
 
-## Question 5 — Is the ordinary text "I am done" equivalent to EOS?
+A recognized EOS can stop the loop immediately. But humans often judge an answer as “finished” from its words or punctuation. We therefore need to separate **semantic-looking completion** from an actual runtime stopping signal.
+
+## Question 5 — If the text sounds finished, is that enough to stop generation?
 
 No. A phrase that *sounds* final is still ordinary generated text unless the serving application explicitly treats it as a stopping pattern.
 
@@ -132,7 +103,9 @@ Next selected token: an ordinary text token
 
 Punctuation and newlines are likewise not universal stopping signals.
 
-## Question 6 — How are special EOS tokens different from custom stop sequences?
+If ordinary text does not automatically stop generation, an application may still want its own delimiter or protocol marker. That creates a second type of stopping mechanism: **custom stop sequences**.
+
+## Question 6 — What if the application wants to stop on something other than EOS?
 
 An EOS token is usually a tokenizer-defined special token ID that may have been learned as an ending marker.
 
@@ -152,7 +125,9 @@ A custom marker can span several tokenizer tokens. Its detection may be based on
 | Typical detection | Selected special token | Runtime pattern matching |
 | Returned to user? | Often hidden | Depends on API |
 
-## Question 7 — What happens when a custom stop sequence spans multiple tokens?
+A custom marker looks simple as text, but tokenization can split it into several pieces. The runtime therefore has to decide whether it has seen a complete delimiter or only the beginning of one.
+
+## Question 7 — What if that custom stop sequence spans multiple tokenizer tokens?
 
 Suppose the application uses the marker:
 
@@ -172,46 +147,10 @@ A streaming implementation needs to consider **partial matches**. It may tempora
 
 This is why streamed output and the final returned text may differ near a custom stop boundary. Exact inclusion/exclusion behavior depends on the serving API.
 
-### Story Bridge 2 — From One Stop Signal to a Complete Stopping System
 
-We started with a clean case: the model selects EOS and the sequence ends.
+We now have more than one possible exit from the decode loop: EOS, custom delimiters, and other runtime conditions. A real request therefore needs a policy for handling several possible stopping criteria together.
 
-Then reality became more complicated.
-
-An application may also want to stop on:
-
-- A custom delimiter.
-- A multi-token marker.
-- A particular end-of-turn token.
-- A runtime cancellation condition.
-
-Now generation no longer has just **one possible exit**.
-
-Think of the decode loop as having several doors:
-
-~~~text
-Select next token
-      ↓
-Is it EOS? ───────────────→ Stop
-      ↓ No
-Did a custom marker finish? → Stop
-      ↓ No
-Has another rule triggered? → Stop
-      ↓ No
-Continue decoding
-~~~
-
-The next questions therefore ask how several stopping rules coexist and how decoding strategies such as greedy, top-k, top-p, and beam search affect whether EOS is even allowed to be selected.
-
-In other words, we are moving from:
-
-> **"What is a stop token?"**
-
-to:
-
-> **"How does a real generation system decide when to terminate?"**
-
-## Question 8 — What if there are several possible stopping conditions?
+## Question 8 — What if several stopping conditions are active at the same time?
 
 A request may configure EOS IDs, custom stop strings, a maximum new-token limit, and possibly cancellation or other application-defined controls.
 
@@ -221,7 +160,9 @@ If the API returns a finish reason, it may distinguish normal stopping from leng
 
 Distinguish **the model selecting EOS** from **the runtime detecting a text stop marker** and from **exhausting the output budget**.
 
-## Question 9 — How do greedy, top-k, top-p, and beam search interact with EOS?
+Those stopping rules matter only if the decoding process actually allows the relevant ending candidate to survive. So the next issue is how greedy decoding, sampling filters, and beam search interact with EOS.
+
+## Question 9 — Can the decoding strategy change whether EOS is selected or considered finished?
 
 **Greedy:** If EOS has the greatest eligible score, it is selected and the relevant response usually ends.
 
@@ -233,7 +174,151 @@ Distinguish **the model selecting EOS** from **the runtime detecting a text stop
 
 Minimum-length constraints can suppress EOS until a certain output length; other constraints can alter which ending markers remain eligible.
 
-## Question 10 — What EOS and stop-sequence edge cases should we understand?
+# Deep Dive 2 — EOS Handling During Beam Search
+
+The existing EOS discussion covers single-sequence decoding. **Beam search requires extra care because one hypothesis can finish while several others remain active.**
+
+## 1. Why doesn't EOS in one beam immediately end the whole search?
+
+Each beam represents a different partial output. For beam width $w=2$, imagine these two hypotheses are active:
+
+~~~text
+Beam A: "travel"     cumulative probability 0.60
+Beam B: "learn"      cumulative probability 0.40
+~~~
+
+A beam producing EOS becomes a *completed candidate*. But another unfinished beam might later produce a completed sequence with a better score under the search's scoring policy.
+
+Therefore, most beam-search algorithms distinguish:
+
+- **Active hypotheses:** Unfinished sequences eligible for another decode step.
+- **Completed hypotheses:** Sequences that already produced EOS and can be considered for final output.
+
+A completed hypothesis is not normally expanded again.
+
+## 2. A complete numerical example
+
+Suppose Beam A has cumulative probability 0.60 and Beam B has 0.40. Their next-token distributions are:
+
+| Parent | Proposed next token | Conditional probability | Candidate sequence probability |
+|---|---|---:|---:|
+| A | EOS | 0.50 | $0.60\times0.50=0.30$ |
+| A | X | 0.30 | $0.60\times0.30=0.18$ |
+| A | Y | 0.20 | $0.60\times0.20=0.12$ |
+| B | EOS | 0.10 | $0.40\times0.10=0.04$ |
+| B | Z | 0.80 | $0.40\times0.80=0.32$ |
+| B | W | 0.10 | $0.40\times0.10=0.04$ |
+
+The **global candidate ranking** is:
+
+| Rank | Candidate | Cumulative probability | Status |
+|---:|---|---:|---|
+| 1 | B → Z | 0.32 | Unfinished |
+| 2 | A → EOS | 0.30 | Completed |
+| 3 | A → X | 0.18 | Unfinished |
+| 4 | A → Y | 0.12 | Unfinished |
+| 5–6 | B → EOS or W | 0.04 | Completed / unfinished |
+
+A common implementation stores A → EOS in its **completed-hypothesis pool** and continues with high-scoring unfinished hypotheses. It may retain B → Z and A → X as its next two active beams, depending on its candidate-pool and EOS-processing rules.
+
+**Important:** Implementation details vary. A naïve scheme that selects exactly two candidates and then simply discards completed ones would have only one active survivor here. Many practical beam-search implementations inspect more than $w$ candidate extensions to keep enough unfinished beams after processing EOS.
+
+## 3. Why can't we directly compare a completed score to an unfinished prefix as if both were final outputs?
+
+A completed candidate, A → EOS, has raw probability:
+
+$$
+P(A,\mathrm{EOS})=0.30
+$$
+
+The unfinished prefix B → Z has probability:
+
+$$
+P(B,Z)=0.32
+$$
+
+But B → Z is **not a completed answer**. It still needs to generate at least one ending token under a policy that requires EOS.
+
+Suppose B → Z predicts:
+
+$$
+P(\mathrm{EOS}\mid B,Z)=0.99
+$$
+
+Its completed-sequence probability becomes:
+
+$$
+P(B,Z,\mathrm{EOS})=0.32\times0.99=0.3168
+$$
+
+Now compare the two completed candidates:
+
+$$
+0.3168>0.30
+$$
+
+B → Z → EOS wins under **raw sequence probability**.
+
+If instead its next EOS probability had been 0.80:
+
+$$
+P(B,Z,\mathrm{EOS})=0.32\times0.80=0.256
+$$
+
+then A → EOS would have the greater raw completed score among those two.
+
+This explains why **a high-scoring unfinished beam must be allowed to continue when it can still produce a better completed sequence**.
+
+## 4. What happens when enough completed hypotheses have been found?
+
+Finding $w$ completed candidates does **not automatically imply** that every unfinished candidate is hopeless. A stopping rule must account for whether continuing an active beam could change the final ranking.
+
+For raw cumulative log probability, a useful upper-bound observation is:
+
+$$
+S(y_{1:t+1}) = S(y_{1:t}) + \log P(y_{t+1} \vert x, y_{1:t}) \le S(y_{1:t})
+$$
+
+
+So the raw log score of an unfinished prefix is an **upper bound** on the raw score of any continuation of that exact prefix. If even the best possible unfinished continuation cannot outrank the completed candidates needed for the final result, an implementation can safely stop under those simplified scoring assumptions.
+
+Length penalties and other modified scoring rules complicate this reasoning: extending a sequence can alter its normalized score, so stopping criteria must match the **actual** scoring scheme.
+
+## 5. How do custom stop strings interact with beam search?
+
+EOS naturally produces a distinct completed-token hypothesis. A custom stop string may instead be detected by the **serving layer** after examining generated text. Its treatment in beam search depends on whether the implementation supports matching per beam, which candidate histories are inspected, and whether the detected string is retained or removed.
+
+Do not assume that every sampling-oriented custom-stop API automatically implements identical semantics for beam search. For a given library, inspect its beam-search stop-criteria behavior.
+
+## 6. What is the final conceptual algorithm?
+
+~~~text
+Active beam hypotheses
+         ↓
+Beam-specific next-token distributions
+         ↓
+Candidate beam–token extension scores
+         ↓
+Rank candidate extensions globally
+         ↓
+EOS-ending extension? ── Yes → Completed-hypothesis pool
+         ↓ No
+Choose high-scoring unfinished successors
+         ↓
+Check whether the stopping rule is satisfied
+         ↓ No
+Expand unfinished successors again
+         ↓ Yes
+Select best completed result under configured scoring
+~~~
+
+**Core lesson:** EOS completes **a beam**, not necessarily **the whole beam-search procedure**. The search finishes under a separate global stopping rule.
+
+---
+
+Beam search shows that even “EOS was generated” can have different meanings depending on whether we are following one sequence or several hypotheses. Before leaving stop tokens, we should collect the remaining edge cases that can make stopping behavior surprising.
+
+## Question 10 — What stop-token edge cases remain before we move to output limits?
 
 - **Immediate EOS:** The model may choose EOS as its first output token, producing no ordinary text.
 - **EOS never selected:** Generation can continue until another stop condition or maximum length is reached.
@@ -245,58 +330,13 @@ Minimum-length constraints can suppress EOS until a certain output length; other
 
 ---
 
-### Story Bridge 3 — Natural Endings Are Not Enough
 
-We now understand how a sequence can stop because the model or runtime recognizes an ending.
-
-But there is still a dangerous possibility:
-
-> **What if no ending is ever selected?**
-
-Imagine the model keeps generating:
-
-~~~text
-token
-  ↓
-token
-  ↓
-token
-  ↓
-token
-  ↓
-...
-~~~
-
-EOS may remain low probability. A custom delimiter may never appear. The text may become repetitive or continue far longer than the application intended.
-
-A production system therefore needs a **second kind of stopping mechanism**.
-
-So far we studied:
-
-~~~text
-Stop because an ending happened
-→ EOS / custom stop condition
-~~~
-
-Now we introduce:
-
-~~~text
-Stop because the allowed budget is exhausted
-→ Maximum output length
-~~~
-
-This is an important conceptual shift.
-
-**EOS asks:** "Has the sequence reached a recognized ending?"
-
-**Maximum output length asks:** "Even if it has not ended naturally, how long are we willing to keep generating?"
-
-That is why maximum output length belongs immediately after stop tokens in the story.
+At this point, natural and application-defined stopping are clear. But one problem remains: **what if none of those stopping conditions ever occurs?** A production system still needs a hard boundary on how long generation is allowed to continue. That is the role of maximum output length.
 
 
 # 8.13 Maximum Output Length
 
-## Question 1 — What is maximum output length?
+## Question 1 — What if no stop condition ever occurs — what prevents generation from continuing indefinitely?
 
 It is a configured cap on how many **new output tokens** a generation request may produce. Let the requested budget be:
 
@@ -314,7 +354,9 @@ where the counted generated tokens follow the API's conventions. An earlier EOS 
 
 The cap is an **upper bound**, not an instruction to produce exactly that many tokens.
 
-## Question 2 — How is output length different from the context window?
+A hard output cap prevents unbounded generation. But the model already has another limit—the context window. The two limits interact, but they are not the same quantity.
+
+## Question 2 — Is maximum output length the same thing as the context window?
 
 The **context window** describes the token capacity available to the model at a time. The **maximum output length** is the limit on new tokens generated for this particular request.
 
@@ -334,7 +376,9 @@ If this condition is not met, the runtime must apply its documented policy, such
 
 An output budget of 500 tokens does **not** mean the model has only a 500-token context window.
 
-## Question 3 — Can you calculate a realistic token budget?
+Once we separate the output budget from context capacity, we can calculate the practical room left for generation instead of treating the requested maximum as automatically available.
+
+## Question 3 — Given the prompt size and context window, how much output can actually fit?
 
 Suppose:
 
@@ -374,39 +418,10 @@ $$
 
 Real systems may reserve special tokens, impose separate output caps, or use other context-management strategies.
 
-### Story Bridge 4 — The Request Now Has Two Independent Limits
 
-Once maximum output length is introduced, a generation request is governed by at least two different ideas:
+Now a request has two independent ways to stop: a recognized ending can occur first, or the mechanical token budget can run out first. The runtime stops according to whichever applicable condition is reached first.
 
-~~~text
-Meaning / stopping logic
-→ EOS or custom stop
-
-Resource / budget logic
-→ Maximum generated tokens
-~~~
-
-Then context capacity adds another ceiling:
-
-~~~text
-Prompt tokens
-+
-Generated tokens
-≤
-Available context
-~~~
-
-So the runtime is no longer asking only:
-
-> "Did the model finish?"
-
-It must also ask:
-
-> "Is there enough token budget and context capacity to continue?"
-
-This is why the next questions compare EOS against the length cap and examine what happens when the mechanical budget expires before the answer is semantically complete.
-
-## Question 4 — What happens when EOS and maximum length compete?
+## Question 4 — What happens when EOS and the output limit compete?
 
 Suppose the maximum output budget is:
 
@@ -424,245 +439,6 @@ Maximum output count first → length-limited termination
 ~~~
 
 Neither case implies the other. A length-limited response can look complete by coincidence, and a naturally stopped response need not use its entire allowance.
-
-## Question 5 — Why can a length limit produce incomplete output?
-
-Maximum length is a mechanical constraint. It does not know whether the output has finished a sentence, closed a bracket, completed a JSON object, or answered the user.
-
-For example:
-
-~~~text
-Three reasons explain the result:
-1. Insufficient data
-2. Training–serving mismatch
-3.
-~~~
-
-A generation result with a length-related finish reason should be treated as **potentially truncated** even if the returned text looks superficially plausible.
-
-## Question 6 — Maximum new tokens versus maximum total sequence length: what changes?
-
-Some APIs count only newly generated tokens; others expose a limit on total input-plus-output sequence length.
-
-For a prompt with 800 tokens:
-
-| Configured restriction | Maximum possible new tokens |
-|---|---:|
-| Maximum new tokens = 200 | 200 |
-| Maximum total sequence length = 900 | 100 |
-
-For the second row:
-
-$$
-900-800=100
-$$
-
-Confirm a particular library's parameter names, precedence rules, reserved special-token accounting, and any model-specific maximum.
-
-### Story Bridge 5 — Before We Reason About the Limit, We Must Know What Is Being Counted
-
-We now know that a response can terminate because a token budget was reached.
-
-But that immediately raises another practical problem:
-
-> **What exactly is the unit of that budget?**
-
-Humans naturally think in:
-
-~~~text
-words
-characters
-sentences
-paragraphs
-~~~
-
-The model and serving runtime usually reason in:
-
-~~~text
-tokens
-~~~
-
-And APIs can expose different kinds of limits:
-
-~~~text
-maximum new tokens
-vs
-maximum total sequence length
-~~~
-
-So before we can reason correctly about latency, memory, or "how long a response will be", we need to understand what the counter actually represents.
-
-The next group of questions moves from **what the limit means** to **what longer generation costs**.
-
-## Question 7 — Are output limits measured in words?
-
-Usually not. They are measured in **tokens**, which can correspond to whole words, parts of words, punctuation, spaces attached to text, or other tokenizer units.
-
-A limit of 100 output tokens does not mean 100 words or 100 characters.
-
-## Question 8 — Does a higher maximum output length force longer generation?
-
-No. A model can select EOS early, or the runtime can detect another configured stop condition, leaving much of the budget unused.
-
-A higher ceiling *permits* longer outputs and increases the possible worst-case runtime. It does not force the model to fill the entire budget.
-
-## Question 9 — How does output length affect inference latency?
-
-Autoregressive decoding typically produces new tokens sequentially. If $N$ tokens are generated and iteration $j$ takes $t_j$ seconds, decode time is:
-
-$$
-T_{\mathrm{decode}}=\sum_{j=1}^{N}t_j
-$$
-
-With roughly constant average iteration time:
-
-$$
-T_{\mathrm{decode}}\approx N\bar{t}
-$$
-
-Total request time also includes prefill and serving overhead:
-
-$$
-T_{\mathrm{request}}
-\approx
-T_{\mathrm{prefill}}+
-T_{\mathrm{decode}}+
-T_{\mathrm{overhead}}
-$$
-
-Generating more tokens generally increases decode time. The rate need not be constant: context length, batching, hardware, and memory bandwidth affect individual token latency.
-
-## Question 10 — How does output length affect the KV cache?
-
-For ordinary cached decoding, additional generated positions add Keys and Values to the cache, unless a specialized cache-management method changes that behavior.
-
-A simplified KV-memory estimate is:
-
-$$
-M_{\mathrm{KV}}
-\approx
-2LBT H_{\mathrm{KV}}d_h b
-$$
-
-where:
-
-- $L$ = Transformer layer count.
-- $B$ = number of active sequence histories.
-- $T$ = cached sequence length.
-- $H_{\mathrm{KV}}$ = number of KV heads.
-- $d_h$ = head dimension.
-- $b$ = bytes per cached element.
-
-Allowing more output tokens raises the potential cached sequence length $T$. Actual physical memory depends on allocation strategy, prefix sharing, cache eviction, sliding-window attention, and serving implementation.
-
-The maximum output budget does not imply that every request consumes its full possible cache allocation.
-
-### Story Bridge 6 — A Token Limit Becomes a Systems Problem
-
-At first, maximum output length looked like a simple user-facing setting:
-
-> "Allow at most $M$ generated tokens."
-
-But Questions 7–10 reveal that the choice has systems consequences.
-
-A larger possible output means:
-
-~~~text
-More generated positions
-        ↓
-More sequential decode iterations
-        ↓
-Longer possible request latency
-        ↓
-Larger possible KV cache
-        ↓
-Resources remain occupied for longer
-~~~
-
-Now imagine many requests are active at the same time.
-
-One request stops after 20 tokens. Another continues for 500. Another reaches 2,000.
-
-The output limit therefore stops being only a property of **one answer**. It starts affecting:
-
-- How long a request occupies the decode scheduler.
-- How long its KV cache remains alive.
-- How much room remains for other users.
-
-That is why the story naturally moves next from **single-request output length** to **batched serving**.
-
-## Question 11 — Why does maximum output length matter for batched serving?
-
-Different requests can finish at different times:
-
-~~~text
-Request A: finishes after 20 output tokens
-Request B: finishes after 100 output tokens
-Request C: hits its cap at 200 output tokens
-~~~
-
-Serving systems can remove completed requests from the active batch and often schedule waiting requests into newly available capacity.
-
-Stop conditions and output ceilings therefore affect token throughput, active batch composition, waiting time, and maximum resource demand.
-
-## Question 12 — What are important maximum-output-length edge cases?
-
-- **Very small budget:** Output may truncate mid-sentence or mid-structure.
-- **Very large budget:** Actual generation can still finish early if EOS is selected.
-- **Prompt nearly fills context:** Remaining space can limit output unless context management is available.
-- **No natural stop:** The hard cap bounds generation.
-- **Structured output:** An insufficient budget can truncate JSON or other required formats.
-- **Special token accounting:** Hidden output tokens and EOS counting may differ across runtimes.
-- **Provider finish reason:** Use it to distinguish normal stopping from length-limited output.
-
----
-
-### Story Bridge 7 — Bring the Stopping Rules Together
-
-We have now built the stopping system piece by piece.
-
-First:
-
-~~~text
-EOS
-→ model-selected ending token
-~~~
-
-Then:
-
-~~~text
-Custom stop sequence
-→ application-defined ending pattern
-~~~
-
-Then:
-
-~~~text
-Maximum output length
-→ hard generation budget
-~~~
-
-And around all of them sits the context window, which limits how much prompt-plus-generated history the model can hold.
-
-The important point is that these rules are **not separate chapters inside the runtime**. They are checked during the same generation process.
-
-So instead of studying them one at a time, we can now follow one request and ask at every step:
-
-~~~text
-Token selected
-     ↓
-Did EOS occur?
-     ↓ No
-Did a custom stop sequence complete?
-     ↓ No
-Has the output budget been exhausted?
-     ↓ No
-Is generation still allowed to continue?
-     ↓ Yes
-Run next decode step
-~~~
-
-The worked example below combines all of those decisions in one place.
 
 # Worked Example — EOS, Custom Stop String, and Output Cap
 
@@ -728,33 +504,22 @@ This is **conceptual pseudocode**, not a universal provider implementation. Real
 
 ---
 
-### Story Bridge 8 — Move from Rules to an Actual Decode Timeline
+The combined example makes the distinction concrete: an EOS stop reflects a recognized ending, while a length stop reflects a counter. That means a length-limited response can end even when the model was still in the middle of expressing something.
 
-The worked example told us **which condition wins** in several possible outcomes.
+## Question 5 — Why can reaching the length limit leave an incomplete response?
 
-Now we need one more level of understanding:
+Maximum length is a mechanical constraint. It does not know whether the output has finished a sentence, closed a bracket, completed a JSON object, or answered the user.
 
-> **At exactly which token-selection step does each decision happen?**
-
-This matters because generation is iterative.
-
-The runtime does not inspect the final answer after everything has been produced. It repeatedly performs:
+For example:
 
 ~~~text
-produce logits
-    ↓
-select token
-    ↓
-update output state
-    ↓
-check stopping rules
-    ↓
-continue or finish
+Three reasons explain the result:
+1. Insufficient data
+2. Training–serving mismatch
+3.
 ~~~
 
-So the first deep dive slows the process down and watches it token by token.
-
-That makes EOS stopping, multi-token delimiter matching, and length exhaustion feel like different branches of the **same decode loop**, rather than unrelated concepts.
+A generation result with a length-related finish reason should be treated as **potentially truncated** even if the returned text looks superficially plausible.
 
 # Deep Dive 1 — Token-by-Token Trace of Three Different Stopping Outcomes
 
@@ -915,219 +680,35 @@ The selected token $y_t$ is known **before** the forward pass that predicts $y_{
 
 ---
 
-### Story Bridge 9 — One Sequence Was Simple; Multiple Hypotheses Change the Meaning of "Finished"
+Once truncation is possible, the next practical question is what the configured number actually counts. Different APIs may limit newly generated tokens or the total input-plus-output sequence.
 
-So far, our token-by-token trace followed one active sequence.
+## Question 6 — What exactly does the limit count — new tokens or total sequence length?
 
-Beam search changes the situation.
+Some APIs count only newly generated tokens; others expose a limit on total input-plus-output sequence length.
 
-Instead of one history, we may have:
+For a prompt with 800 tokens:
 
-~~~text
-Beam 1 → unfinished
-Beam 2 → unfinished
-Beam 3 → unfinished
-~~~
+| Configured restriction | Maximum possible new tokens |
+|---|---:|
+| Maximum new tokens = 200 | 200 |
+| Maximum total sequence length = 900 | 100 |
 
-Now imagine Beam 2 selects EOS.
-
-The natural question is:
-
-> **Did generation finish—or did only Beam 2 finish?**
-
-This exposes an important distinction:
-
-~~~text
-Sequence-level stopping
-≠
-Search-level stopping
-~~~
-
-A single beam can become complete while other hypotheses remain capable of producing a better final sequence.
-
-That is why EOS handling in beam search deserves its own deep dive: the stopping token has the same local meaning, but the **global search procedure** has additional logic.
-
-# Deep Dive 2 — EOS Handling During Beam Search
-
-The existing EOS discussion covers single-sequence decoding. **Beam search requires extra care because one hypothesis can finish while several others remain active.**
-
-## 1. Why doesn't EOS in one beam immediately end the whole search?
-
-Each beam represents a different partial output. For beam width $w=2$, imagine these two hypotheses are active:
-
-~~~text
-Beam A: "travel"     cumulative probability 0.60
-Beam B: "learn"      cumulative probability 0.40
-~~~
-
-A beam producing EOS becomes a *completed candidate*. But another unfinished beam might later produce a completed sequence with a better score under the search's scoring policy.
-
-Therefore, most beam-search algorithms distinguish:
-
-- **Active hypotheses:** Unfinished sequences eligible for another decode step.
-- **Completed hypotheses:** Sequences that already produced EOS and can be considered for final output.
-
-A completed hypothesis is not normally expanded again.
-
-## 2. A complete numerical example
-
-Suppose Beam A has cumulative probability 0.60 and Beam B has 0.40. Their next-token distributions are:
-
-| Parent | Proposed next token | Conditional probability | Candidate sequence probability |
-|---|---|---:|---:|
-| A | EOS | 0.50 | $0.60\times0.50=0.30$ |
-| A | X | 0.30 | $0.60\times0.30=0.18$ |
-| A | Y | 0.20 | $0.60\times0.20=0.12$ |
-| B | EOS | 0.10 | $0.40\times0.10=0.04$ |
-| B | Z | 0.80 | $0.40\times0.80=0.32$ |
-| B | W | 0.10 | $0.40\times0.10=0.04$ |
-
-The **global candidate ranking** is:
-
-| Rank | Candidate | Cumulative probability | Status |
-|---:|---|---:|---|
-| 1 | B → Z | 0.32 | Unfinished |
-| 2 | A → EOS | 0.30 | Completed |
-| 3 | A → X | 0.18 | Unfinished |
-| 4 | A → Y | 0.12 | Unfinished |
-| 5–6 | B → EOS or W | 0.04 | Completed / unfinished |
-
-A common implementation stores A → EOS in its **completed-hypothesis pool** and continues with high-scoring unfinished hypotheses. It may retain B → Z and A → X as its next two active beams, depending on its candidate-pool and EOS-processing rules.
-
-**Important:** Implementation details vary. A naïve scheme that selects exactly two candidates and then simply discards completed ones would have only one active survivor here. Many practical beam-search implementations inspect more than $w$ candidate extensions to keep enough unfinished beams after processing EOS.
-
-## 3. Why can't we directly compare a completed score to an unfinished prefix as if both were final outputs?
-
-A completed candidate, A → EOS, has raw probability:
+For the second row:
 
 $$
-P(A,\mathrm{EOS})=0.30
+900-800=100
 $$
 
-The unfinished prefix B → Z has probability:
-
-$$
-P(B,Z)=0.32
-$$
-
-But B → Z is **not a completed answer**. It still needs to generate at least one ending token under a policy that requires EOS.
-
-Suppose B → Z predicts:
-
-$$
-P(\mathrm{EOS}\mid B,Z)=0.99
-$$
-
-Its completed-sequence probability becomes:
-
-$$
-P(B,Z,\mathrm{EOS})=0.32\times0.99=0.3168
-$$
-
-Now compare the two completed candidates:
-
-$$
-0.3168>0.30
-$$
-
-B → Z → EOS wins under **raw sequence probability**.
-
-If instead its next EOS probability had been 0.80:
-
-$$
-P(B,Z,\mathrm{EOS})=0.32\times0.80=0.256
-$$
-
-then A → EOS would have the greater raw completed score among those two.
-
-This explains why **a high-scoring unfinished beam must be allowed to continue when it can still produce a better completed sequence**.
-
-## 4. What happens when enough completed hypotheses have been found?
-
-Finding $w$ completed candidates does **not automatically imply** that every unfinished candidate is hopeless. A stopping rule must account for whether continuing an active beam could change the final ranking.
-
-For raw cumulative log probability, a useful upper-bound observation is:
-
-$$
-S(y_{1:t+1}) = S(y_{1:t}) + \log P(y_{t+1} \vert x, y_{1:t}) \le S(y_{1:t})
-$$
+Confirm a particular library's parameter names, precedence rules, reserved special-token accounting, and any model-specific maximum.
 
 
-So the raw log score of an unfinished prefix is an **upper bound** on the raw score of any continuation of that exact prefix. If even the best possible unfinished continuation cannot outrank the completed candidates needed for the final result, an implementation can safely stop under those simplified scoring assumptions.
+Knowing whether the limit applies to new or total tokens still leaves one basic unit question: the model does not budget output in human words or characters—it works in tokenizer units.
 
-Length penalties and other modified scoring rules complicate this reasoning: extending a sequence can alter its normalized score, so stopping criteria must match the **actual** scoring scheme.
+## Question 7 — Are those limits measured in words, characters, or tokens?
 
-## 5. How do custom stop strings interact with beam search?
+Usually not. They are measured in **tokens**, which can correspond to whole words, parts of words, punctuation, spaces attached to text, or other tokenizer units.
 
-EOS naturally produces a distinct completed-token hypothesis. A custom stop string may instead be detected by the **serving layer** after examining generated text. Its treatment in beam search depends on whether the implementation supports matching per beam, which candidate histories are inspected, and whether the detected string is retained or removed.
-
-Do not assume that every sampling-oriented custom-stop API automatically implements identical semantics for beam search. For a given library, inspect its beam-search stop-criteria behavior.
-
-## 6. What is the final conceptual algorithm?
-
-~~~text
-Active beam hypotheses
-         ↓
-Beam-specific next-token distributions
-         ↓
-Candidate beam–token extension scores
-         ↓
-Rank candidate extensions globally
-         ↓
-EOS-ending extension? ── Yes → Completed-hypothesis pool
-         ↓ No
-Choose high-scoring unfinished successors
-         ↓
-Check whether the stopping rule is satisfied
-         ↓ No
-Expand unfinished successors again
-         ↓ Yes
-Select best completed result under configured scoring
-~~~
-
-**Core lesson:** EOS completes **a beam**, not necessarily **the whole beam-search procedure**. The search finishes under a separate global stopping rule.
-
----
-
-### Story Bridge 10 — Now Leave the Toy Examples and Enter a Real API Request
-
-The earlier examples deliberately simplified token accounting so the stopping logic was easy to see.
-
-A real request is messier.
-
-The model may receive more than the user's visible sentence:
-
-~~~text
-System instructions
-+
-Conversation history
-+
-User message
-+
-Chat-template markers
-+
-Tool schemas / retrieved context
-+
-Special tokens
-~~~
-
-And the serving system may also impose more than one ceiling:
-
-~~~text
-Context capacity
-+
-Requested output maximum
-+
-Model-specific output maximum
-+
-Reserved positions
-~~~
-
-So the final step is to ask:
-
-> **When an API says a response stopped because of "length", what was actually counted?**
-
-This is where the conceptual stopping rules meet practical token accounting and finish reasons.
+A limit of 100 output tokens does not mean 100 words or 100 characters.
 
 # Deep Dive 3 — Realistic Token Accounting and Finish Reasons
 
@@ -1246,39 +827,109 @@ Before concluding that a response "should have had room to finish", identify:
 
 ---
 
-### Story Bridge 11 — The Whole Story in One Generation Loop
+Real token accounting shows why a configured maximum is only one ceiling among several. A larger ceiling therefore means “generation may continue longer,” not “the model must fill the allowance.”
 
-We can now reconstruct Part 7 without memorizing every section separately.
+## Question 8 — Does a larger output limit force the model to generate a longer answer?
 
-A request begins with a prompt. Prefill gives us the first next-token logits. Then the generation loop starts.
+No. A model can select EOS early, or the runtime can detect another configured stop condition, leaving much of the budget unused.
 
-At each step:
+A higher ceiling *permits* longer outputs and increases the possible worst-case runtime. It does not force the model to fill the entire budget.
+
+If a larger budget permits more tokens, the first systems consequence is time: autoregressive generation requires additional sequential decode iterations for additional output positions.
+
+## Question 9 — Why does a longer output increase inference latency?
+
+Autoregressive decoding typically produces new tokens sequentially. If $N$ tokens are generated and iteration $j$ takes $t_j$ seconds, decode time is:
+
+$$
+T_{\mathrm{decode}}=\sum_{j=1}^{N}t_j
+$$
+
+With roughly constant average iteration time:
+
+$$
+T_{\mathrm{decode}}\approx N\bar{t}
+$$
+
+Total request time also includes prefill and serving overhead:
+
+$$
+T_{\mathrm{request}}
+\approx
+T_{\mathrm{prefill}}+
+T_{\mathrm{decode}}+
+T_{\mathrm{overhead}}
+$$
+
+Generating more tokens generally increases decode time. The rate need not be constant: context length, batching, hardware, and memory bandwidth affect individual token latency.
+
+More decode iterations do not only consume time. Every additional generated position can also extend the cached history, so output length has a memory consequence as well.
+
+## Question 10 — Why does a longer output increase KV-cache requirements?
+
+For ordinary cached decoding, additional generated positions add Keys and Values to the cache, unless a specialized cache-management method changes that behavior.
+
+A simplified KV-memory estimate is:
+
+$$
+M_{\mathrm{KV}}
+\approx
+2LBT H_{\mathrm{KV}}d_h b
+$$
+
+where:
+
+- $L$ = Transformer layer count.
+- $B$ = number of active sequence histories.
+- $T$ = cached sequence length.
+- $H_{\mathrm{KV}}$ = number of KV heads.
+- $d_h$ = head dimension.
+- $b$ = bytes per cached element.
+
+Allowing more output tokens raises the potential cached sequence length $T$. Actual physical memory depends on allocation strategy, prefix sharing, cache eviction, sliding-window attention, and serving implementation.
+
+The maximum output budget does not imply that every request consumes its full possible cache allocation.
+
+
+For one request, longer output means more latency and potentially more KV memory. In production, many such requests coexist, so their different lifetimes begin to affect the shared batch and scheduler.
+
+## Question 11 — What happens when requests with very different output lengths are batched together?
+
+Different requests can finish at different times:
 
 ~~~text
-Select token
-    ↓
-Is it a recognized ending token?
-    ├── Yes → finish
-    └── No
-          ↓
-Did a custom stop sequence complete?
-    ├── Yes → finish
-    └── No
-          ↓
-Has the output budget been exhausted?
-    ├── Yes → finish because of length
-    └── No
-          ↓
-Run the next decode step
+Request A: finishes after 20 output tokens
+Request B: finishes after 100 output tokens
+Request C: hits its cap at 200 output tokens
 ~~~
 
-Beam search adds multiple active hypotheses, while real APIs add their own accounting conventions and finish-reason names.
+Serving systems can remove completed requests from the active batch and often schedule waiting requests into newly available capacity.
 
-But the core story stays the same:
+Stop conditions and output ceilings therefore affect token throughput, active batch composition, waiting time, and maximum resource demand.
 
-> **Generation continues only while no recognized stop condition has occurred and the system still has permission and capacity to produce another token.**
+Once output limits affect both correctness and serving resources, the final practical question is diagnostic: **when a response ends, how do we know whether it ended naturally or because some limit was reached?**
 
-The final comparison below now summarizes that entire story.
+## Question 12 — What should we check when a response stops near or at its output limit?
+
+The first thing to inspect is the runtime's **finish reason**, when the API provides one. A stop-related finish reason generally indicates a recognized ending condition such as EOS or a configured stop marker, while a length-related finish reason indicates that an output or generation budget was exhausted.
+
+That distinction matters because visible text alone can be misleading: a response can look complete and still have ended mechanically at its limit, or it can look abruptly cut off because the length cap arrived first.
+
+Beyond the finish reason, several edge cases affect how the limit should be interpreted:
+
+
+- **Very small budget:** Output may truncate mid-sentence or mid-structure.
+- **Very large budget:** Actual generation can still finish early if EOS is selected.
+- **Prompt nearly fills context:** Remaining space can limit output unless context management is available.
+- **No natural stop:** The hard cap bounds generation.
+- **Structured output:** An insufficient budget can truncate JSON or other required formats.
+- **Special token accounting:** Hidden output tokens and EOS counting may differ across runtimes.
+- **Provider finish reason:** Use it to distinguish normal stopping from length-limited output.
+
+---
+
+
+We can now reconstruct the chapter as one causal chain: generation needs a stopping rule; EOS provides a learned ending; custom sequences add application-defined endings; a hard token cap protects us when no ending occurs; and that cap affects truncation, latency, KV memory, and batched serving. The final comparison compresses that whole story.
 
 # Part 7 — Final Comparison
 
