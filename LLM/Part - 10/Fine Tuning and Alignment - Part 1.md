@@ -585,4 +585,200 @@ If this baseline already satisfies the business requirement, fine-tuning may not
 
 ### Design Decision
 
-Before training, our theoretical project should include
+Before training, our theoretical project should include a **prompt-only Qwen baseline**.
+
+---
+
+### Story Bridge 8 — Sometimes the Problem Is Missing Information, Not Missing Behavior
+
+Fine-tuning is often used when the real problem is that the model lacks fresh or proprietary information.
+
+That leads to an important distinction.
+
+## Question 8 — When should we think about RAG instead of fine-tuning?
+
+A useful high-level distinction is:
+
+~~~text
+Fine-tuning
+→ change model behavior
+
+RAG
+→ provide external information at inference time
+~~~
+
+Fine-tuning is useful for persistent task behavior, style, classification policy, or domain-specific response patterns.
+
+RAG is useful when the main requirement is access to changing, traceable, or large external knowledge.
+
+They can also be combined.
+
+### Qwen Project Application
+
+Little Content detection is primarily a **screenshot-to-label behavior problem**.
+
+The model must inspect the screenshot and map the observed evidence to the desired label.
+
+Therefore RAG is not the primary adaptation mechanism for the core task.
+
+### Design Decision
+
+Primary adaptation mechanism:
+
+$$
+\text{Fine-tuning}
+$$
+
+rather than retrieval.
+
+---
+
+### Story Bridge 9 — A Fine-Tuning Task Must Specify What the Model Should Actually Learn
+
+Saying "fine-tune Qwen on screenshots" is still not a complete problem definition.
+
+We need to define the target behavior and the evidence it should rely on.
+
+## Question 9 — What exactly should the fine-tuned model learn?
+
+At a simplified level, we want:
+
+$$
+P_\theta(y\mid x)
+$$
+
+with:
+
+$$
+y
+\in
+\{
+\text{Little Content},
+\text{Not Little Content}
+\}
+$$
+
+We want:
+
+$$
+P_\theta
+\left(
+y_{\mathrm{correct}}
+\mid x
+\right)
+$$
+
+to be high.
+
+But the model should learn the **concept**, not incidental correlations.
+
+Useful evidence may include:
+
+- Meaningful visible content.
+- Content density.
+- Layout structure.
+- Empty regions.
+- Primary versus secondary content.
+- Navigation dominance.
+
+Undesirable shortcuts could include:
+
+- Specific host identity.
+- Template identity.
+- Screenshot artifacts.
+- Watermarks.
+- Collection-specific metadata.
+
+### Qwen Project Application
+
+The desired behavior is:
+
+~~~text
+Learn:
+"What visual/content pattern constitutes Little Content?"
+
+Not:
+"Which screenshots or hosts appeared in training?"
+~~~
+
+### Design Decision
+
+The project must be designed for **concept generalization**, not screenshot memorization.
+
+---
+
+### Story Bridge 10 — A Binary Label Implies a Decision Boundary
+
+Once we know what concept should be learned, it is useful to visualize fine-tuning as moving the task decision boundary.
+
+## Question 10 — How can fine-tuning be understood as learning a decision boundary?
+
+Suppose the model produces an internal representation:
+
+$$
+h=f_\theta(x)
+$$
+
+and a task-relevant mechanism produces a score:
+
+$$
+s=g(h)
+$$
+
+A simplified binary decision can be written as:
+
+$$
+\hat{y}
+=
+\begin{cases}
+1 & s\ge\tau\\
+0 & s<\tau
+\end{cases}
+$$
+
+where $1$ represents Little Content and $\tau$ is a decision threshold.
+
+A generative VLM may not literally contain one scalar classification head. It can instead generate class tokens. The decision-boundary view is still useful conceptually.
+
+### Qwen Project Application
+
+Two screenshots can both look sparse yet belong to different classes.
+
+Therefore the model should not learn:
+
+$$
+\text{Little Content}
+=
+\text{large blank area}
+$$
+
+It may need several interacting visual and semantic signals.
+
+### Design Decision
+
+Later dataset design should deliberately include:
+
+- Clear positives.
+- Clear negatives.
+- Hard negatives.
+- Ambiguous boundary examples.
+
+---
+
+### Story Bridge 11 — Good Training Accuracy Is Useless If the Model Memorizes the Dataset
+
+Fine-tuning should improve performance on screenshots the model has never seen.
+
+That is the real purpose of training.
+
+## Question 11 — Is the goal memorization or generalization?
+
+The goal is generalization.
+
+Let the training data be:
+
+$$
+\mathcal{D}_{\mathrm{train}}
+$$
+
+but the real target is expected performance on the deployment dis
