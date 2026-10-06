@@ -781,4 +781,213 @@ $$
 \mathcal{D}_{\mathrm{train}}
 $$
 
-but the real target is expected performance on the deployment dis
+but the real target is expected performance on the deployment distribution:
+
+$$
+\mathbb{E}_{(x,y)\sim p_{\mathrm{target}}}
+\left[
+\mathcal{L}
+\left(
+f_\theta(x),y
+\right)
+\right]
+$$
+
+Training examples are only a sample from the broader target distribution.
+
+### Qwen Project Application
+
+A model that performs well on known website templates but fails on previously unseen SERP structures is not a successful solution.
+
+This will later make host/template leakage a major concern.
+
+### Design Decision
+
+Generalization target:
+
+> Unseen SERP screenshots, including unseen host and layout variations.
+
+---
+
+### Story Bridge 12 — The Downstream Dataset Is Narrower Than the Pretraining World
+
+The pretrained model saw broad data.
+
+Our task data comes from one narrower environment: labelled SERP screenshots with a specific operational label.
+
+## Question 12 — What is domain shift in fine-tuning?
+
+Let:
+
+$$
+p_{\mathrm{pre}}(x)
+$$
+
+represent the broad pretraining distribution.
+
+Let:
+
+$$
+p_{\mathrm{task}}(x,y)
+$$
+
+represent the downstream distribution.
+
+In general:
+
+$$
+p_{\mathrm{pre}}
+\neq
+p_{\mathrm{task}}
+$$
+
+The downstream data can emphasize patterns that were rare or unimportant during pretraining.
+
+### Qwen Project Application
+
+Our project contains both:
+
+~~~text
+DOMAIN ADAPTATION
+General visual-language data
+→ SERP screenshots
+
+TASK ADAPTATION
+General multimodal understanding
+→ Little Content classification
+~~~
+
+### Design Decision
+
+We are theoretically performing:
+
+$$
+\text{Domain adaptation}
++
+\text{Task adaptation}
+$$
+
+The relative importance of each will be explored later.
+
+---
+
+### Story Bridge 13 — Specialization Can Help, but It Can Also Damage Useful Capabilities
+
+Fine-tuning changes the pretrained model.
+
+If updates are too aggressive or the downstream data is too narrow, useful prior capability can deteriorate.
+
+## Question 13 — Can fine-tuning damage pretrained capabilities?
+
+Yes.
+
+Conceptually:
+
+$$
+\theta_0
+\rightarrow
+\theta^*
+$$
+
+should improve the downstream task without unnecessarily damaging useful behavior encoded in $\theta_0$.
+
+~~~text
+Too little adaptation
+→ task remains poorly learned
+
+Too much narrow adaptation
+→ over-specialization / forgetting
+~~~
+
+This connects to catastrophic forgetting, which we will study formally in Part 7.
+
+### Qwen Project Application
+
+We want Qwen to become better at Little Content classification while retaining the visual-language understanding that made the pretrained model useful.
+
+### Design Decision
+
+Training should balance:
+
+$$
+\text{Task adaptation}
+\quad\text{and}\quad
+\text{preservation of pretrained capability}
+$$
+
+---
+
+### Story Bridge 14 — If Preserving the Base Model Matters, Maybe We Do Not Need to Update Every Parameter
+
+So far, fine-tuning has sounded like every model weight must change.
+
+Large models give us another option: adapt a smaller trainable parameter set while keeping most pretrained weights frozen.
+
+## Question 14 — Does fine-tuning necessarily mean updating the whole model?
+
+No.
+
+### Full fine-tuning
+
+Most or all model parameters are trainable:
+
+$$
+\theta_0
+\rightarrow
+\theta^*
+$$
+
+### Parameter-Efficient Fine-Tuning
+
+Most pretrained parameters remain fixed:
+
+$$
+\theta_0
+=
+\text{frozen}
+$$
+
+while a smaller parameter set:
+
+$$
+\phi
+=
+\text{trainable}
+$$
+
+is optimized.
+
+The adapted model can be written conceptually as:
+
+$$
+f(x;\theta_0,\phi)
+$$
+
+LoRA is one important PEFT method.
+
+We will study its mathematics in Part 2.
+
+### Qwen Project Application
+
+The resume lists multimodal LoRA/PEFT among the skill set, but the exact historical adapter configuration is not established.
+
+### Design Decision
+
+The following remains an open question until Part 2:
+
+~~~text
+Full fine-tuning
+vs
+LoRA / PEFT
+~~~
+
+---
+
+# Qwen Project Build Record — After Part 1
+
+| Design element | Current state | Type |
+|---|---|---|
+| Business problem | Little Content detection | Resume Fact |
+| Model family | Qwen VLM | Resume Fact |
+| Data modality | Labelled SERP screenshots | Resume Fact |
+| Core evidence | Visual layout + content-density signals | Resume Fact 
