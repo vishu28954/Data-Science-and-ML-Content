@@ -395,3 +395,194 @@ Task-specific loss
 Gradient-based adaptation
         ↓
 Adapted Qwen model
+~~~
+
+Exactly which parameters are trainable is deferred to Part 2.
+
+---
+
+### Story Bridge 5 — Fine-Tuning Starts From Knowledge; Training From Scratch Does Not
+
+Now we can compare fine-tuning with the alternative of building a multimodal model from a random initialization.
+
+## Question 5 — How is fine-tuning different from training from scratch?
+
+### Training from scratch
+
+We begin with parameters that do not contain useful learned representations:
+
+$$
+\theta_{\mathrm{init}}
+\sim
+\text{random initialization}
+$$
+
+The training data must teach both general representations and the downstream task.
+
+### Fine-tuning
+
+We begin from:
+
+$$
+\theta_0
+=
+\text{pretrained parameters}
+$$
+
+and adapt those parameters, or a small additional parameter set, toward the target task.
+
+~~~text
+TRAIN FROM SCRATCH
+random parameters
+    ↓
+learn vision/language representations
+    ↓
+learn task
+
+FINE-TUNE
+pretrained representations
+    ↓
+adapt task behavior
+~~~
+
+### Qwen Project Application
+
+A labelled SERP dataset should ideally teach:
+
+> Which already-recognizable visual patterns correspond to Little Content?
+
+It should not need to teach from zero:
+
+- Basic vision.
+- Language generation.
+- Visual-text association.
+- Layout understanding.
+- General semantic understanding.
+
+### Design Decision
+
+We use **transfer learning from a pretrained VLM**, not training a multimodal model from scratch.
+
+---
+
+### Story Bridge 6 — If Knowledge Is Reused, What Exactly Is Being Transferred?
+
+Saying that a pretrained model contains knowledge is still vague.
+
+We need a more useful mental model for transfer learning.
+
+## Question 6 — What does transfer learning mean here?
+
+Suppose the pretrained network maps the input to a representation:
+
+$$
+h=f_{\theta_0}(x)
+$$
+
+If the representation already captures useful factors such as:
+
+- Text regions.
+- Visual density.
+- Page structure.
+- Semantic content.
+- Empty regions.
+- Navigation elements.
+
+then the downstream task can reuse those factors.
+
+Fine-tuning can then modify the model so those features become more useful for predicting:
+
+$$
+y=\text{Little Content label}
+$$
+
+A compact mental model is:
+
+~~~text
+Pretraining
+→ learn useful general features
+
+Fine-tuning
+→ adapt how those features are used for the task
+~~~
+
+This is simplified because fine-tuning can also modify the representations themselves.
+
+### Qwen Project Application
+
+The desired transfer is:
+
+~~~text
+General VLM capability
+        ↓
+Understand screenshot structure
+        ↓
+Recognize content-density patterns
+        ↓
+Learn Little Content boundary
+~~~
+
+### Design Decision
+
+Our design goal is:
+
+> Preserve useful pretrained visual-language capability while adapting task behavior.
+
+This will later connect directly to PEFT and catastrophic forgetting.
+
+---
+
+### Story Bridge 7 — Before Updating Weights, Try the Cheapest Baseline
+
+A powerful pretrained model may already perform reasonably well if the task is explained clearly.
+
+Therefore, fine-tuning should not be our automatic first move.
+
+## Question 7 — How is prompting different from fine-tuning?
+
+### Prompting
+
+Prompting changes the input context while leaving the model parameters unchanged:
+
+$$
+P_{\theta_0}
+\left(
+y\mid x,\text{instruction}
+\right)
+$$
+
+### Fine-tuning
+
+Fine-tuning changes model parameters or a trainable adapter set:
+
+$$
+\theta_0
+\rightarrow
+\theta^*
+$$
+
+| Prompting | Fine-tuning |
+|---|---|
+| No parameter update | Parameters or adapters updated |
+| Fast to test | Requires training |
+| Easy to iterate | More expensive to iterate |
+| Behavior depends heavily on prompt | Task behavior can be internalized |
+| Good baseline | Useful for persistent adaptation |
+
+### Qwen Project Application
+
+A prompt-only baseline could theoretically ask:
+
+~~~text
+Inspect this SERP screenshot.
+
+Classify it as:
+1. Little Content
+2. Not Little Content
+~~~
+
+If this baseline already satisfies the business requirement, fine-tuning may not be necessary.
+
+### Design Decision
+
+Before training, our theoretical project should include
