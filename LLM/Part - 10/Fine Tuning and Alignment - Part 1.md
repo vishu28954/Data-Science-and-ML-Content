@@ -983,11 +983,540 @@ LoRA / PEFT
 
 ---
 
+### Story Bridge 15 — A Fine-Tuned Model Is Meaningless Without a Baseline to Beat
+
+Suppose we fine-tune Qwen and obtain a strong-looking metric.
+
+That number alone does not tell us whether fine-tuning was actually useful.
+
+If prompt-only Qwen already performs just as well, the training effort may not have added value.
+
+## Question 15 — What baselines should exist before we fine-tune?
+
+A strong experiment should compare the fine-tuned model against simpler alternatives.
+
+### Baseline A — Prompt-only pretrained Qwen
+
+~~~text
+Pretrained Qwen
++
+carefully written Little Content instruction
+~~~
+
+This tells us how much task performance is already available without changing any parameters.
+
+### Baseline B — Existing text-only or heuristic system
+
+If an existing production system already performs the task, it provides a practical reference point.
+
+### Baseline C — Simpler supervised model
+
+If suitable extracted features are available, a simpler classifier can tell us whether the complexity of a VLM is justified.
+
+The principle is:
+
+> **Fine-tuning should demonstrate incremental value over a meaningful baseline.**
+
+### Qwen Project Application
+
+The current CV states that the VLM extended quality classification beyond text-only features.
+
+That makes the following conceptual comparison useful:
+
+~~~text
+Existing / text-only baseline
+        ↓
+Prompt-only Qwen VLM
+        ↓
+Fine-tuned Qwen VLM
+~~~
+
+The exact historical baseline implementation is not established by the resume.
+
+### Design Decision
+
+Our theoretical experiment plan will include at least:
+
+1. Prompt-only Qwen.
+2. Fine-tuned Qwen.
+3. An appropriate existing or simpler baseline when available.
+
+---
+
+### Story Bridge 16 — We Need to Define Success Before We Start Training
+
+A model can improve one metric while becoming worse on another.
+
+For a classification task, false positives and false negatives can have very different business costs.
+
+So the evaluation goal should be decided before fine-tuning.
+
+## Question 16 — How should we define success for Little Content detection?
+
+Let the positive class be Little Content.
+
+Then:
+
+$$
+\mathrm{Precision}
+=
+\frac{TP}{TP+FP}
+$$
+
+Precision asks:
+
+> Of the pages predicted as Little Content, how many truly were Little Content?
+
+Recall is:
+
+$$
+\mathrm{Recall}
+=
+\frac{TP}{TP+FN}
+$$
+
+Recall asks:
+
+> Of all true Little Content pages, how many did we detect?
+
+These metrics can trade off against each other.
+
+### Why accuracy can be misleading
+
+Suppose only 5% of pages are Little Content.
+
+A model that predicts Not Little Content for every page obtains:
+
+$$
+95\%
+$$
+
+accuracy while detecting no positive examples.
+
+Therefore, class balance and business cost matter.
+
+### Qwen Project Application
+
+The current resume reports an improvement in Junk Metric precision, so precision is clearly one important downstream measure.
+
+But a complete evaluation should also examine:
+
+- Recall.
+- F1.
+- Confusion matrix.
+- Performance across important slices.
+- Error types.
+
+The full evaluation framework belongs to Part 8.
+
+### Design Decision
+
+The Qwen project will use a **precision-sensitive evaluation**, while still tracking recall and broader error behavior.
+
+---
+
+### Story Bridge 17 — Fine-Tuning Can Only Learn the Signal We Put Into the Dataset
+
+We now understand the model side of fine-tuning.
+
+But the labelled examples determine what gradients the model receives.
+
+If those labels are poor, the model can faithfully learn the wrong behavior.
+
+## Question 17 — Why is data quality often more important than the fine-tuning algorithm?
+
+Suppose the observed training label is:
+
+$$
+\tilde{y}_i
+$$
+
+while the desired true label is:
+
+$$
+y_i
+$$
+
+If:
+
+$$
+\tilde{y}_i
+\neq
+y_i
+$$
+
+the optimization process is pushed toward the wrong target.
+
+More generally:
+
+~~~text
+Noisy labels
+→ noisy learning signal
+
+Biased sampling
+→ biased decision boundary
+
+Near duplicates
+→ inflated validation performance
+
+Host/template leakage
+→ apparent generalization without true generalization
+~~~
+
+A sophisticated optimizer cannot rescue a fundamentally invalid target definition.
+
+### Qwen Project Application
+
+The labelled SERP screenshots do more than supply training examples.
+
+They define the operational concept of Little Content.
+
+Later we therefore need to answer:
+
+- How were labels created?
+- How consistent are annotators?
+- How are ambiguous cases handled?
+- Are hard negatives present?
+- Are near-duplicate hosts or templates separated across splits?
+
+### Design Decision
+
+Dataset design is a first-class component of the project, not preprocessing trivia.
+
+---
+
+### Story Bridge 18 — We Can Finally State When Fine-Tuning Is Justified
+
+We have now compared:
+
+- Pretraining.
+- Training from scratch.
+- Prompting.
+- RAG.
+- Fine-tuning.
+
+We have also established the need for baselines, meaningful evaluation, and trustworthy labelled data.
+
+That gives us enough information to build a general decision rule.
+
+## Question 18 — When should we fine-tune a pretrained model?
+
+Fine-tuning is especially reasonable when:
+
+1. The pretrained model already has useful underlying capability.
+2. We need a persistent downstream behavior that prompting does not deliver reliably enough.
+3. We have representative, high-quality task examples.
+4. The desired behavior is sufficiently stable.
+5. The expected gain justifies training and maintenance complexity.
+6. We can evaluate the adapted model on genuinely unseen data.
+
+Fine-tuning is less attractive when:
+
+- The real problem is missing fresh knowledge.
+- Prompting already solves the task.
+- Training labels are too weak or inconsistent.
+- Requirements change extremely quickly.
+- A simpler model solves the problem reliably.
+- Training and serving cost outweigh the benefit.
+
+### Qwen Project Application
+
+The theoretical justification becomes:
+
+~~~text
+General Qwen VLM capability already exists
+        ↓
+Little Content behavior is task-specific
+        ↓
+Labelled SERP screenshots exist
+        ↓
+Visual information is useful
+        ↓
+Prompt-only baseline leaves a persistent gap
+        ↓
+Fine-tuning becomes justified
+~~~
+
+### Design Decision
+
+Fine-tuning is justified as a task-adaptation mechanism **only after the baseline gap is demonstrated**.
+
+---
+
+### Story Bridge 19 — Part 1 Should End With a Project State, Not a Collection of Definitions
+
+Part 1 has answered the question:
+
+> Why would we fine-tune Qwen at all?
+
+Before moving to Supervised Fine-Tuning, we should be able to reconstruct the entire reasoning chain and clearly separate what is known from what still needs to be designed.
+
+## Question 19 — What is our current theoretical design for the Qwen project?
+
+At the end of Part 1:
+
+~~~text
+Business problem
+        ↓
+Detect Little Content pages
+
+Why a VLM?
+        ↓
+Visual layout and content-density evidence matter
+
+Why pretrained Qwen?
+        ↓
+Reuse broad multimodal capability
+
+Why not train from scratch?
+        ↓
+Reuse existing representations
+
+What comes before fine-tuning?
+        ↓
+Prompt-only and simpler baselines
+
+Why fine-tune?
+        ↓
+Learn persistent task-specific behavior
+
+What should the model learn?
+        ↓
+A screenshot-to-label decision boundary
+
+What should it NOT learn?
+        ↓
+Host/template shortcuts
+
+What matters most?
+        ↓
+Generalization to unseen pages
+
+What is still unknown?
+        ↓
+Exact Qwen version
+Dataset construction
+Full FT vs PEFT
+LoRA configuration
+Loss construction
+Chat format
+Hyperparameters
+Evaluation protocol
+Deployment design
+~~~
+
+This is the project state that Part 2 will inherit.
+
+---
+
 # Qwen Project Build Record — After Part 1
 
 | Design element | Current state | Type |
 |---|---|---|
 | Business problem | Little Content detection | Resume Fact |
-| Model family | Qwen VLM | Resume Fact |
-| Data modality | Labelled SERP screenshots | Resume Fact |
-| Core evidence | Visual layout + content-density signals | Resume Fact 
+| Model family | Qwen Vision-Language Model | Resume Fact |
+| Training data modality | Labelled Bing SERP screenshots | Resume Fact |
+| Core evidence | Visual-layout and content-density signals | Resume Fact |
+| Production scale | About 50K URLs/day | Resume Fact |
+| Downstream integration | Bing SERP Junk Metric | Resume Fact |
+| Reported impact | About 10% improvement in Junk Metric precision | Resume Fact |
+| Theoretical task formulation | Multimodal supervised binary decision | Design Decision |
+| Why pretrained Qwen? | Reuse broad visual-language capability | Design Decision |
+| Why fine-tuning? | Learn persistent task-specific decision behavior | Design Decision |
+| Prompt-only Qwen | Required theoretical baseline | Design Decision |
+| RAG | Not the primary mechanism for the core task | Design Decision |
+| Generalization target | Unseen SERP layouts, hosts, and templates | Design Decision |
+| Evaluation emphasis | Precision-sensitive while tracking recall and error slices | Design Decision |
+| Dataset quality | First-class modeling concern | Design Decision |
+| Exact Qwen version | Not established | Open Question |
+| Dataset size | Not established | Open Question |
+| Class balance | Not established | Open Question |
+| Train/validation/test split | Not established | Open Question |
+| Full FT vs PEFT | Deferred to Part 2 | Open Question |
+| LoRA configuration | Deferred to Part 2 | Open Question |
+| Exact loss construction | Deferred to Part 2 | Open Question |
+| Chat template | Deferred to Part 3 | Open Question |
+| Hyperparameters | Deferred to Part 6 | Open Question |
+| Final evaluation protocol | Deferred to Part 8 | Open Question |
+| Deployment architecture | Deferred to Part 8 | Open Question |
+
+---
+
+# Part 1 — Key Equations
+
+## Pretraining-style autoregressive objective
+
+$$
+\mathcal{L}_{\mathrm{pre}}
+=
+-\sum_{t=1}^{T}
+\log
+P_\theta
+\left(
+x_t\mid x_{<t}
+\right)
+$$
+
+## Multimodal conditional-generation view
+
+$$
+\mathcal{L}
+=
+-\sum_{t=1}^{T}
+\log
+P_\theta
+\left(
+y_t\mid I,y_{<t}
+\right)
+$$
+
+## Fine-tuning objective
+
+$$
+\theta^*
+=
+\underset{\theta}{\operatorname{argmin}}
+\;
+\mathcal{L}_{\mathrm{task}}
+\left(
+\theta;
+\mathcal{D}_{\mathrm{task}}
+\right)
+$$
+
+## Gradient update
+
+$$
+\theta_{k+1}
+=
+\theta_k
+-
+\eta
+\nabla_\theta
+\mathcal{L}_{\mathrm{task}}
+$$
+
+## Reusable representation
+
+$$
+h=f_{\theta_0}(x)
+$$
+
+## Desired task behavior
+
+$$
+P_\theta(y\mid x)
+$$
+
+## Simplified binary decision
+
+$$
+\hat{y}
+=
+\begin{cases}
+1 & s\ge\tau\\
+0 & s<\tau
+\end{cases}
+$$
+
+## Target-distribution generalization objective
+
+$$
+\mathbb{E}_{(x,y)\sim p_{\mathrm{target}}}
+\left[
+\mathcal{L}
+\left(
+f_\theta(x),y
+\right)
+\right]
+$$
+
+## Precision
+
+$$
+\mathrm{Precision}
+=
+\frac{TP}{TP+FP}
+$$
+
+## Recall
+
+$$
+\mathrm{Recall}
+=
+\frac{TP}{TP+FN}
+$$
+
+---
+
+# Part 1 — Final Mental Model
+
+~~~text
+PRETRAINING
+Broad multimodal data
+        ↓
+General visual-language capability
+        ↓
+Pretrained parameters θ0
+
+DOWNSTREAM PROBLEM
+SERP screenshot
+        ↓
+Need Little Content decision
+        ↓
+General capability alone is insufficient
+
+BASELINES
+Prompt-only Qwen
++
+simpler existing system
+        ↓
+Measure the task gap
+
+FINE-TUNING
+Labelled SERP examples
+        ↓
+Task-specific objective
+        ↓
+Gradient-based adaptation
+        ↓
+Adapted model
+
+GOAL
+Preserve useful pretrained knowledge
++
+learn Little Content behavior
++
+generalize to unseen SERP layouts
+~~~
+
+The central distinction is:
+
+> **Pretraining creates broad reusable capability. Fine-tuning adapts that capability toward a narrower target behavior.**
+
+---
+
+# Bridge to Part 2
+
+Part 1 answered:
+
+> **Why should we fine-tune Qwen?**
+
+Part 2 will answer:
+
+> **How do labelled examples actually train it?**
+
+We will study **10.2 Supervised Fine-Tuning**, including:
+
+- What one SFT example contains.
+- Input tokens versus target tokens.
+- Cross-entropy and next-token loss.
+- Which tokens contribute to the loss.
+- Full fine-tuning versus PEFT.
+- LoRA intuition.
+- LoRA mathematics.
+- Which parameters remain frozen.
+- Which parameters receive gradients.
+- How parameter-efficient training changes memory and training cost.
+
+This is where the Qwen project moves from high-level justification into an actual training formulation.
