@@ -169,3 +169,229 @@ The model learns to make the observed next token more probable given the previou
 
 For a multimodal generative view, image information can be included conceptually as:
 
+$$
+\mathcal{L}
+=
+-\sum_{t=1}^{T}
+\log
+P_\theta
+\left(
+y_t
+\mid
+I,y_{<t}
+\right)
+$$
+
+where:
+
+- $I$ represents image-derived information.
+- $y_t$ is the target text token.
+
+This is a conceptual objective. The exact historical pretraining recipe depends on the specific Qwen model version and is not established by the resume.
+
+### What pretraining gives us
+
+A useful mental model is:
+
+~~~text
+Large broad dataset
+        ↓
+General visual features
+        +
+Language patterns
+        +
+Cross-modal associations
+        +
+Broad reasoning capability
+        ↓
+Reusable pretrained parameters
+~~~
+
+### Qwen Project Application
+
+The pretrained model may already recognize:
+
+- Sparse layouts.
+- Dense layouts.
+- Text regions.
+- Empty space.
+- Search-result structures.
+- Navigation-heavy pages.
+
+Those are useful ingredients for the downstream task.
+
+### Design Decision
+
+We treat pretraining as the source of **general reusable visual-language capability**.
+
+---
+
+### Story Bridge 3 — Recognizing a Page Is Not the Same as Knowing Our Label Policy
+
+A model can describe a screenshot correctly and still classify it incorrectly.
+
+For example, it may correctly say:
+
+> The page contains a navigation bar, a short text block, and a large blank region.
+
+But we still need a production decision.
+
+That is where the gap between pretraining and fine-tuning appears.
+
+## Question 3 — Why does pretraining not automatically solve the Little Content task?
+
+Because the pretraining objective is not the same as the downstream objective.
+
+The pretrained model may learn:
+
+$$
+h=f_{\theta_0}(x)
+$$
+
+where:
+
+- $\theta_0$ is the pretrained parameter state.
+- $h$ is a learned representation of the input.
+
+That representation can contain useful signals such as:
+
+~~~text
+Text density
+Layout sparsity
+Visual hierarchy
+Content blocks
+Navigation structure
+~~~
+
+But our downstream problem still needs a mapping:
+
+$$
+h
+\rightarrow
+\text{Little Content decision}
+$$
+
+Pretraining may make that mapping easier to learn, but it does not define Bing's exact decision rule.
+
+### Qwen Project Application
+
+Consider two visually sparse screenshots.
+
+~~~text
+Page A:
+Almost no meaningful primary content
+→ Human label: Little Content
+
+Page B:
+Compact but genuinely useful answer block
+→ Human label: Not Little Content
+~~~
+
+A generic VLM may describe both accurately yet fail to reproduce the task-specific label boundary.
+
+### Design Decision
+
+The main adaptation target is:
+
+> **The mapping from SERP evidence to the Little Content decision boundary.**
+
+---
+
+### Story Bridge 4 — We Know What Is Missing, So Fine-Tuning Must Change Something
+
+We do not want to discard everything learned during pretraining.
+
+We want to start from the pretrained state and move it toward the downstream task.
+
+## Question 4 — What is fine-tuning mathematically?
+
+Let the pretrained parameters be:
+
+$$
+\theta_0
+$$
+
+and the downstream dataset be:
+
+$$
+\mathcal{D}_{\mathrm{task}}
+=
+\{
+(x_i,y_i)
+\}_{i=1}^{N}
+$$
+
+Fine-tuning starts from:
+
+$$
+\theta
+\leftarrow
+\theta_0
+$$
+
+and optimizes a downstream objective:
+
+$$
+\theta^*
+=
+\underset{\theta}{\operatorname{argmin}}
+\;
+\mathcal{L}_{\mathrm{task}}
+\left(
+\theta;
+\mathcal{D}_{\mathrm{task}}
+\right)
+$$
+
+A gradient update can be written as:
+
+$$
+\theta_{k+1}
+=
+\theta_k
+-
+\eta
+\nabla_\theta
+\mathcal{L}_{\mathrm{task}}
+$$
+
+where:
+
+- $\eta$ is the learning rate.
+- $k$ is the optimization step.
+- $\nabla_\theta\mathcal{L}$ is the gradient.
+
+The key idea is:
+
+> Fine-tuning begins from a useful pretrained solution instead of learning everything from zero.
+
+### Qwen Project Application
+
+For our simplified project:
+
+$$
+x_i=\text{SERP screenshot}_i
+$$
+
+and:
+
+$$
+y_i=\text{human Little Content label}_i
+$$
+
+The task examples provide gradients that make the desired output more likely for similar screenshots.
+
+### Design Decision
+
+The project follows:
+
+~~~text
+Pretrained Qwen VLM
+        ↓
+Labelled SERP screenshots
+        ↓
+Task-specific loss
+        ↓
+Gradient-based adaptation
+        ↓
+Adapted Qwen model
