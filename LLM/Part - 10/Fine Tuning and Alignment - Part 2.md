@@ -1527,8 +1527,7 @@ These raw scores are called **logits**.
 At supervised position $t$, we can write the full vocabulary-logit vector as:
 
 $$
-\mathbf{z}_t
-=
+\mathbf{z}_t =
 \left[
 z_{t,1},
 z_{t,2},
@@ -1567,18 +1566,9 @@ So we cannot directly interpret the logits as probabilities.
 We apply **softmax**:
 
 $$
-P_\theta
-\left(
-k\mid c_t
-\right)
-=
-\frac{
-e^{z_{t,k}}
-}{
-\sum_{j=1}^{V}
-e^{z_{t,j}}
-}
+P_\theta \left( k \mid c_t \right) = \frac{e^{z_{t,k}}}{\sum_{j=1}^{V} e^{z_{t,j}}}
 $$
+
 
 where:
 
@@ -1600,7 +1590,7 @@ Other    → 0.03
 and:
 
 $$
-0.80+0.10+0.07+0.03=1
+0.80+0.10+0.07+0.03 = 1
 $$
 
 ---
@@ -1648,11 +1638,9 @@ Little
 So:
 
 $$
-P_\theta
-\left(
-y_t\mid c_t
-\right)
+P_\theta \left( y_t \mid c_t \right)
 $$
+
 
 means:
 
@@ -1680,13 +1668,9 @@ Other       0.03
 For the loss, the most important value is:
 
 $$
-P_\theta
-\left(
-\text{Little}\mid c_t
-\right)
-=
-0.8
+P_\theta \left( \text{Little} \mid c_t \right) = 0.8
 $$
+
 
 In simple terms:
 
@@ -1703,16 +1687,13 @@ If it gets very low probability, the prediction is poor.
 The token-level loss is:
 
 $$
-\boxed{
-\mathcal{L}_t
-=
--\log
-P_\theta
-\left(
-y_t\mid c_t
-\right)
-}
+\begin{array}{|c|}
+\hline
+\mathcal{L}_t = -\log P_\theta \left( y_t \mid c_t \right) \\
+\hline
+\end{array}
 $$
+
 
 where $y_t$ is the correct target token.
 
@@ -1721,23 +1702,16 @@ where $y_t$ is the correct target token.
 Suppose:
 
 $$
-P_\theta
-\left(
-y_t\mid c_t
-\right)
-=
-0.8
+P_\theta \left( y_t \mid c_t \right) = 0.8
 $$
+
 
 Then:
 
 $$
-\mathcal{L}_t
-=
--\log(0.8)
-\approx
-0.223
+\mathcal{L}_t = -\log(0.8) \approx 0.223
 $$
+
 
 The loss is small.
 
@@ -1746,19 +1720,14 @@ The loss is small.
 Suppose:
 
 $$
-P_\theta
-\left(
-y_t\mid c_t
-\right)
-=
-0.1
+P_\theta \left( y_t \mid c_t \right) = 0.1
 $$
+
 
 Then:
 
 $$
-\mathcal{L}_t
-=
+\mathcal{L}_t =
 -\log(0.1)
 \approx
 2.303
@@ -1795,12 +1764,9 @@ The negative log gives us a useful penalty curve.
 So when:
 
 $$
-P_\theta
-\left(
-y_t\mid c_t
-\right)
-\rightarrow 1
+P_\theta \left( y_t \mid c_t \right) \rightarrow 1
 $$
+
 
 the loss approaches:
 
@@ -1811,12 +1777,9 @@ $$
 But when:
 
 $$
-P_\theta
-\left(
-y_t\mid c_t
-\right)
-\rightarrow 0
+P_\theta \left( y_t \mid c_t \right) \rightarrow 0
 $$
+
 
 the loss becomes very large.
 
@@ -1863,19 +1826,14 @@ Little
 Suppose:
 
 $$
-P_\theta
-\left(
-\text{Little}\mid x
-\right)
-=
-0.8
+P_\theta \left( \text{Little} \mid x \right) = 0.8
 $$
+
 
 Then:
 
 $$
-\mathcal{L}_1
-=
+\mathcal{L}_1 =
 -\log(0.8)
 \approx
 0.223
@@ -1892,21 +1850,13 @@ Screenshot + instruction + TRUE Little
 Suppose:
 
 $$
-P_\theta
-\left(
-\text{Content}
-\mid
-x,\text{Little}
-\right)
-=
-0.6
+P_\theta \left( \text{Content} \mid x, \text{Little} \right) = 0.6
 $$
 
 Then:
 
 $$
-\mathcal{L}_2
-=
+\mathcal{L}_2 =
 -\log(0.6)
 \approx
 0.511
@@ -1923,21 +1873,14 @@ Screenshot + instruction + TRUE Little + TRUE Content
 Suppose:
 
 $$
-P_\theta
-\left(
-\text{EOS}
-\mid
-x,\text{Little},\text{Content}
-\right)
-=
-0.9
+P_\theta \left( \text{EOS} \mid x, \text{Little}, \text{Content} \right) = 0.9
 $$
+
 
 Then:
 
 $$
-\mathcal{L}_3
-=
+\mathcal{L}_3 =
 -\log(0.9)
 \approx
 0.105
@@ -1970,24 +1913,18 @@ $$
 For $T$ supervised assistant tokens, a common example-level objective is the mean token loss:
 
 $$
-\boxed{
-\mathcal{L}_{\mathrm{example}}
-=
--\frac{1}{T}
-\sum_{t=1}^{T}
-\log
-P_\theta
-\left(
-y_t\mid c_t
-\right)
-}
+\begin{array}{|c|}
+\hline
+\mathcal{L}_{\mathrm{example}} = -\frac{1}{T} \sum_{t=1}^{T} \log P_\theta \left( y_t \mid c_t \right) \\
+\hline
+\end{array}
 $$
+
 
 For this example:
 
 $$
-\mathcal{L}_{\mathrm{example}}
-=
+\mathcal{L}_{\mathrm{example}} =
 \frac{
 0.223+0.511+0.105
 }{3}
@@ -2066,13 +2003,9 @@ Update trainable parameters
 Suppose before training:
 
 $$
-P_\theta
-\left(
-\text{Little}\mid x
-\right)
-=
-0.20
+P_\theta \left( \text{Little} \mid x \right) = 0.20
 $$
+
 
 Then:
 
@@ -2085,13 +2018,9 @@ $$
 After some training, suppose:
 
 $$
-P_\theta
-\left(
-\text{Little}\mid x
-\right)
-=
-0.70
+P_\theta \left( \text{Little} \mid x \right) = 0.70
 $$
+
 
 Then:
 
@@ -2134,9 +2063,7 @@ Little   Content   Not   Other
 The general cross-entropy is:
 
 $$
-\mathcal{L}
-=
--
+\mathcal{L} = -
 \sum_{k=1}^{V}
 q_k
 \log
@@ -2159,8 +2086,7 @@ all the other terms become zero.
 Therefore:
 
 $$
-\mathcal{L}
-=
+\mathcal{L} =
 -\log
 p_{\mathrm{correct}}
 $$
@@ -2303,18 +2229,13 @@ The primary SFT objective is:
 For $T$ supervised assistant tokens:
 
 $$
-\boxed{
-\mathcal{L}_{\mathrm{SFT}}
-=
--\frac{1}{T}
-\sum_{t=1}^{T}
-\log
-P_\theta
-\left(
-y_t\mid c_t
-\right)
-}
+\begin{array}{|c|}
+\hline
+\mathcal{L}_{\mathrm{SFT}} = -\frac{1}{T} \sum_{t=1}^{T} \log P_\theta \left( y_t \mid c_t \right) \\
+\hline
+\end{array}
 $$
+
 
 Assistant-only loss masking, discussed in Question 7, determines **which token positions are included in this average**.
 
@@ -2484,13 +2405,9 @@ $$
 with:
 
 $$
-m_t
-=
-\begin{cases}
-1, & \text{if position }t\text{ is a supervised assistant target token}\\
-0, & \text{if position }t\text{ is context or otherwise ignored}
-\end{cases}
+m_t = \begin{cases} 1, & \text{if position } t \text{ is a supervised assistant target token} \\ 0, & \text{if position } t \text{ is context or otherwise ignored} \end{cases}
 $$
+
 
 So:
 
@@ -2505,22 +2422,11 @@ m_t = 0
 The masked loss is:
 
 $$
-\boxed{
-\mathcal{L}
-=
--
-\frac{
-\sum_t
-m_t
-\log
-P_\theta
-\left(
-y_t\mid c_t
-\right)
-}{
-\sum_t m_t
-}
-}
+\begin{array}{|c|}
+\hline
+\mathcal{L} = - \frac{\sum_t m_t \log P_\theta \left( y_t \mid c_t \right)}{\sum_t m_t} \\
+\hline
+\end{array}
 $$
 
 This looks complicated, but the meaning is simple:
@@ -2782,20 +2688,17 @@ EOS
 and their losses are:
 
 $$
-\mathcal{L}_{\text{Little}}
-=
+\mathcal{L}_{\text{Little}} =
 0.20
 $$
 
 $$
-\mathcal{L}_{\text{Content}}
-=
+\mathcal{L}_{\text{Content}} =
 0.50
 $$
 
 $$
-\mathcal{L}_{\text{EOS}}
-=
+\mathcal{L}_{\text{EOS}} =
 0.10
 $$
 
@@ -2804,8 +2707,7 @@ The prompt tokens are masked.
 So the example loss is calculated only from those three assistant targets:
 
 $$
-\mathcal{L}_{\mathrm{example}}
-=
+\mathcal{L}_{\mathrm{example}} =
 \frac{
 0.20+0.50+0.10
 }{3}
@@ -3096,22 +2998,11 @@ $$
 and the masked objective is:
 
 $$
-\boxed{
-\mathcal{L}
-=
--
-\frac{
-\sum_t
-m_t
-\log
-P_\theta
-\left(
-y_t\mid c_t
-\right)
-}{
-\sum_t m_t
-}
-}
+\begin{array}{|c|}
+\hline
+\mathcal{L} = - \frac{\sum_t m_t \log P_\theta \left( y_t \mid c_t \right)}{\sum_t m_t} \\
+\hline
+\end{array}
 $$
 
 In implementation, ignored textual label positions may commonly be represented by:
