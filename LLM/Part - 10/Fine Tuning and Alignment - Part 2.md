@@ -3017,94 +3017,366 @@ depending on the training framework and loss function configuration.
 
 ### Story Bridge 8 — A Masked Context Can Still Affect the Gradient
 
-Loss masking can sound as though the prompt and image are ignored during training.
+Question 7 introduced assistant-only loss masking.
 
-That is not what happens.
+That can create an easy misunderstanding:
 
-The assistant prediction depends on those inputs.
+> If the prompt and image do not receive their own token-level loss, does the model still learn from them?
 
-We need to separate where loss is measured from where gradients can flow.
+Yes.
+
+The key is to separate:
+
+~~~text
+Where the loss is measured
+from
+What information affects that loss
+~~~
 
 ## Question 8 — If prompt and image positions are masked from the loss, can the model still learn from them?
 
 Yes.
 
-Suppose the supervised loss is:
+Questions 1–7 used $x$ for the full multimodal input context. For this gradient discussion, it is useful to split that input into:
 
 $$
-\mathcal{L}
+x
 =
--
-\log
-P_\theta
 \left(
-y
-\mid
-I,x
+I,
+x_{\mathrm{text}}
 \right)
 $$
 
 where:
 
-- $I$ is visual information.
-- $x$ is textual context.
+- $I$ is the SERP screenshot.
+- $x_{\mathrm{text}}$ is the textual context, such as the system message and user instruction.
 
-Even though the explicit target loss is evaluated on the assistant output, the prediction depends on the image and prompt.
-
-For trainable visual-path parameters $\theta_v$:
+For assistant token $t$, teacher forcing gives the causal context:
 
 $$
-\frac{
-\partial\mathcal{L}
-}{
-\partial\theta_v
-}
+c_t
 =
-\frac{
-\partial\mathcal{L}
-}{
-\partial h
-}
-\frac{
-\partial h
-}{
-\partial\theta_v
-}
+\left(
+I,
+x_{\mathrm{text}},
+y_{<t}^{\mathrm{true}}
+\right)
 $$
 
-if the visual path contributes to hidden representation $h$.
+where $y_{<t}^{\mathrm{true}}$ contains the correct previous assistant tokens.
+
+From Question 7, let:
+
+$$
+m_t
+\in
+\{0,1\}
+$$
+
+indicate whether token position $t$ contributes to the supervised loss.
+
+The assistant-only SFT loss is therefore:
+
+$$
+\mathcal{L}
+=
+-
+\frac{1}{\sum_t m_t}
+\sum_t
+m_t
+\log
+P_\theta
+\left(
+y_t
+\mid
+I,
+x_{\mathrm{text}},
+y_{<t}^{\mathrm{true}}
+\right)
+$$
+
+Equivalently, using the shorter causal-context notation:
+
+$$
+\mathcal{L}
+=
+-
+\frac{1}{\sum_t m_t}
+\sum_t
+m_t
+\log
+P_\theta
+\left(
+y_t
+\mid
+c_t
+\right)
+$$
+
+The important point is that the image and prompt still appear inside the conditioning context.
+
+So even though the prompt positions themselves have no direct token-level loss, changing the prompt or image can change the probability of the supervised assistant token and therefore change the loss.
+
+---
+
+### How can the image affect the gradient?
+
+Let the vision encoder produce a visual representation:
+
+$$
+v
+=
+f_{\theta_v}(I)
+$$
+
+where $\theta_v$ denotes the vision-encoder parameters.
+
+Let the hidden state used to predict assistant token $t$ depend on the visual representation and the textual/assistant history:
+
+$$
+h_t
+=
+g_\theta
+\left(
+v,
+x_{\mathrm{text}},
+y_{<t}^{\mathrm{true}}
+\right)
+$$
+
+The probability of the correct assistant token depends on that hidden state:
+
+$$
+P_\theta
+\left(
+y_t
+\mid
+c_t
+\right)
+=
+P_\theta
+\left(
+y_t
+\mid
+h_t
+\right)
+$$
+
+Therefore, if the visual pathway is trainable, the chain rule gives a gradient path from the assistant loss back into the visual parameters:
+
+$$
+\frac{\partial \mathcal{L}}
+{\partial \theta_v}
+=
+\sum_t
+\frac{\partial \mathcal{L}}
+{\partial h_t}
+\frac{\partial h_t}
+{\partial v}
+\frac{\partial v}
+{\partial \theta_v}
+$$
+
+If we write the masked objective explicitly, the same idea is:
+
+$$
+\frac{\partial \mathcal{L}}
+{\partial \theta_v}
+=
+-
+\frac{1}{\sum_t m_t}
+\sum_t
+m_t
+\frac{
+\partial
+\log
+P_\theta
+\left(
+y_t\mid c_t
+\right)
+}{
+\partial h_t
+}
+\frac{\partial h_t}{\partial v}
+\frac{\partial v}{\partial \theta_v}
+$$
+
+So the gradient originates from supervised assistant-token loss, but it can flow through any trainable component that helped produce those assistant predictions.
+
+---
+
+### Qwen example
+
+Suppose the correct response is:
+
+~~~text
+Little Content
+~~~
+
+For the first assistant token:
+
+$$
+\mathcal{L}_{\mathrm{Little}}
+=
+-
+\log
+P_\theta
+\left(
+\text{Little}
+\mid
+I,
+x_{\mathrm{text}}
+\right)
+$$
+
+For the second assistant token, teacher forcing adds the correct previous token:
+
+$$
+\mathcal{L}_{\mathrm{Content}}
+=
+-
+\log
+P_\theta
+\left(
+\text{Content}
+\mid
+I,
+x_{\mathrm{text}},
+\text{Little}
+\right)
+$$
+
+If EOS is also supervised:
+
+$$
+\mathcal{L}_{\mathrm{EOS}}
+=
+-
+\log
+P_\theta
+\left(
+\text{EOS}
+\mid
+I,
+x_{\mathrm{text}},
+\text{Little},
+\text{Content}
+\right)
+$$
+
+The screenshot $I$ appears in every relevant conditional probability.
+
+That is why the image can influence the loss even though we do not define a separate image-token cross-entropy target.
+
+---
+
+### What if the vision encoder is frozen?
+
+If the vision encoder is frozen during optimization, its parameters remain unchanged:
+
+$$
+\theta_v^{(k+1)}
+=
+\theta_v^{(k)}
+$$
+
+The visual representation still enters the forward pass:
+
+$$
+v
+=
+f_{\theta_v}(I)
+$$
+
+and therefore still affects the assistant-token probabilities.
+
+But the optimizer does not update $\theta_v$.
+
+If a multimodal connector is trainable, let:
+
+$$
+u
+=
+g_{\phi_c}(v)
+$$
+
+where $\phi_c$ denotes connector parameters.
+
+Then, in general, assistant-token loss can produce:
+
+$$
+\frac{\partial \mathcal{L}}
+{\partial \phi_c}
+\neq
+0
+$$
+
+so the connector can learn even while the vision encoder stays frozen.
+
+---
 
 ### Crucial distinction
 
 ~~~text
 LOSS MASKING
-Where is prediction error measured?
 
-FREEZING
-Which parameters are allowed to update?
+asks:
+
+Which token positions contribute
+directly to the supervised loss?
+
+
+PARAMETER FREEZING
+
+asks:
+
+Which model parameters
+are allowed to update?
 ~~~
 
 These are different decisions.
 
-### Example
+A prompt token can be loss-masked and still affect the assistant prediction.
 
-The vision encoder may be frozen.
+A vision encoder can be frozen and still provide visual features.
 
-Then:
+A trainable connector or LoRA adapter can still receive gradients from the assistant loss.
 
-- Its output still conditions the assistant prediction.
-- Gradients may mathematically reach its output.
-- But its parameters are not updated.
+---
 
-A trainable multimodal connector can still receive gradient from the assistant loss.
+### Interview Explanation
+
+A simple interview answer is:
+
+> **Yes. Loss masking only decides where I measure the supervised error; it does not remove the prompt or image from the forward pass. In my Qwen example, the screenshot and instruction are part of the context used to predict the assistant tokens "Little" and "Content". I calculate cross-entropy only on those assistant targets, but their probabilities still depend on the image and prompt. Therefore the assistant loss can backpropagate through any trainable component that produced those predictions. If the vision encoder is frozen, its weights do not update, but its visual features still condition the prediction. A trainable connector or LoRA adapter can still receive gradients from that same assistant loss.**
 
 ### Qwen Project Application
 
-The image can teach the downstream classifier behavior even though we do not define a separate "image-token loss."
+For the Little Content project:
+
+~~~text
+Screenshot + instruction
+        ↓
+used as conditioning context
+        ↓
+Qwen predicts assistant token
+        ↓
+assistant-token cross-entropy
+        ↓
+gradient flows backward
+through trainable components
+~~~
+
+There is no need for a separate supervised image-token loss for the screenshot to matter.
 
 ### Design Decision
 
-We will keep **loss masking** and **parameter freezing** conceptually separate throughout the project.
+We keep **loss masking** and **parameter freezing** separate:
+
+- Loss masking selects the token positions included in the SFT objective.
+- Parameter freezing selects the model parameters that the optimizer may update.
 
 ---
 
@@ -3216,15 +3488,29 @@ Limitations:
 
 ### Option B — Add a classification head
 
-Suppose hidden representation $h$ feeds a two-class head:
+Suppose a hidden representation $h\in\mathbb{R}^{d}$ feeds a two-class head:
 
 $$
 z
 =
-W_ch+b
+W_c h+b_c
 $$
 
-where:
+with:
+
+$$
+W_c
+\in
+\mathbb{R}^{2\times d}
+$$
+
+$$
+b_c
+\in
+\mathbb{R}^{2}
+$$
+
+and therefore:
 
 $$
 z
@@ -3232,10 +3518,13 @@ z
 \mathbb{R}^{2}
 $$
 
-Then:
+The class probabilities are:
 
 $$
-P(y=k\mid x)
+P_\theta
+\left(
+y=k\mid x
+\right)
 =
 \frac{
 e^{z_k}
@@ -3301,16 +3590,21 @@ $$
 y^{(-)}
 $$
 
-We can compute:
+Let the positive label contain $T_+$ tokens and the negative label contain $T_-$ tokens.
+
+Their sequence log-scores are:
 
 $$
 S_+(x)
 =
+\sum_{t=1}^{T_+}
 \log
 P_\theta
 \left(
-y^{(+)}
-\mid x
+y_t^{(+)}
+\mid
+x,
+y_{<t}^{(+)}
 \right)
 $$
 
@@ -3319,11 +3613,14 @@ and:
 $$
 S_-(x)
 =
+\sum_{t=1}^{T_-}
 \log
 P_\theta
 \left(
-y^{(-)}
-\mid x
+y_t^{(-)}
+\mid
+x,
+y_{<t}^{(-)}
 \right)
 $$
 
@@ -3335,7 +3632,7 @@ s(x)
 S_+(x)-S_-(x)
 $$
 
-Then a thresholded decision is:
+A thresholded decision can then be written as:
 
 $$
 \hat{y}
@@ -3348,17 +3645,28 @@ $$
 
 where $\tau$ is chosen using validation data.
 
-If the two canonical labels have different token lengths, one possible comparison is the length-normalized sequence score:
+If the canonical labels have different token lengths, one possible comparison is the mean log-probability per token:
 
 $$
-\bar{S}(y\mid x)
+\bar{S}_+(x)
 =
-\frac{1}{|y|}
-\log
-P_\theta
-\left(
-y\mid x
-\right)
+\frac{1}{T_+}
+S_+(x)
+$$
+
+$$
+\bar{S}_-(x)
+=
+\frac{1}{T_-}
+S_-(x)
+$$
+
+with normalized relative score:
+
+$$
+\bar{s}(x)
+=
+\bar{S}_+(x)-\bar{S}_-(x)
 $$
 
 ### Why this helps
@@ -3423,6 +3731,9 @@ $$
 \eta
 \nabla_\theta
 \mathcal{L}
+\left(
+\theta_k
+\right)
 $$
 
 ### Advantages
@@ -3531,13 +3842,14 @@ $$
 v_t
 $$
 
-If both are FP32, those two tensors require roughly:
+If both moment tensors are stored in FP32, their combined memory is approximately:
 
 $$
+M_{\mathrm{Adam\ moments}}
+\approx
 8P
+\text{ bytes}
 $$
-
-bytes.
 
 For a 7B-parameter model:
 
@@ -3620,8 +3932,7 @@ and the optimization becomes:
 $$
 \phi^*
 =
-\underset{\phi}{\operatorname{argmin}}
-\;
+\operatorname*{arg\,min}_{\phi}
 \mathcal{L}
 \left(
 \theta_0,\phi
@@ -3685,15 +3996,7 @@ $$
 W_0
 $$
 
-LoRA freezes $W_0$ and writes the task-specific update as:
-
-$$
-\Delta W
-=
-BA
-$$
-
-where:
+LoRA freezes $W_0$ and factorizes a low-rank update using:
 
 $$
 A
@@ -3721,25 +4024,32 @@ d_{\mathrm{out}}
 \right)
 $$
 
-The effective transformation becomes:
+The unscaled low-rank product is:
+
+$$
+BA
+\in
+\mathbb{R}^{d_{\mathrm{out}}\times d_{\mathrm{in}}}
+$$
+
+Using the common LoRA scaling factor $\alpha/r$, define the effective adapter update as:
+
+$$
+\Delta W_{\mathrm{LoRA}}
+=
+\frac{\alpha}{r}
+BA
+$$
+
+The effective weight matrix is:
 
 $$
 W
 =
-W_0+\Delta W
+W_0+\Delta W_{\mathrm{LoRA}}
 $$
 
-and:
-
-$$
-h
-=
-W_0x
-+
-BAx
-$$
-
-A commonly used scaled form is:
+and the linear transformation becomes:
 
 $$
 h
@@ -3972,7 +4282,7 @@ It can regularize the adapter, especially on smaller datasets.
 
 ### Initialization
 
-A common design initializes the factors so that:
+A common initialization makes one LoRA factor zero so that initially:
 
 $$
 BA
@@ -3980,9 +4290,15 @@ BA
 0
 $$
 
-at initialization.
+and therefore:
 
-Then:
+$$
+\Delta W_{\mathrm{LoRA}}
+=
+0
+$$
+
+so:
 
 $$
 W
@@ -4601,7 +4917,19 @@ Trainable LoRA parameters and selected connector parameters do.
 
 ### Step 9 — Optimizer update
 
-For trainable parameter set $\phi$:
+For the trainable parameter set $\phi$:
+
+$$
+g_k
+=
+\nabla_\phi
+\mathcal{L}
+\left(
+\theta_0,\phi_k
+\right)
+$$
+
+An optimizer such as Adam transforms this raw gradient into an update direction $\widehat{g}_k$, after which:
 
 $$
 \phi_{k+1}
@@ -4612,7 +4940,7 @@ $$
 \widehat{g}_k
 $$
 
-where $\widehat{g}_k$ represents the optimizer-adjusted gradient.
+The frozen base parameters $\theta_0$ remain unchanged.
 
 ### Step 10 — Repeat over batches
 
@@ -4939,8 +5267,7 @@ $$
 $$
 \phi^*
 =
-\underset{\phi}{\operatorname{argmin}}
-\;
+\operatorname*{arg\,min}_{\phi}
 \mathcal{L}
 \left(
 \theta_0,\phi
@@ -4950,8 +5277,9 @@ $$
 ## LoRA update
 
 $$
-\Delta W
+\Delta W_{\mathrm{LoRA}}
 =
+\frac{\alpha}{r}
 BA
 $$
 
@@ -4998,21 +5326,37 @@ $$
 ## Generative class score
 
 $$
+S_+(x)
+=
+\sum_{t=1}^{T_+}
+\log
+P_\theta
+\left(
+y_t^{(+)}
+\mid
+x,
+y_{<t}^{(+)}
+\right)
+$$
+
+$$
+S_-(x)
+=
+\sum_{t=1}^{T_-}
+\log
+P_\theta
+\left(
+y_t^{(-)}
+\mid
+x,
+y_{<t}^{(-)}
+\right)
+$$
+
+$$
 s(x)
 =
-\log
-P_\theta
-\left(
-y^{(+)}
-\mid x
-\right)
--
-\log
-P_\theta
-\left(
-y^{(-)}
-\mid x
-\right)
+S_+(x)-S_-(x)
 $$
 
 ---
