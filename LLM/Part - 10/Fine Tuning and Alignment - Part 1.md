@@ -155,32 +155,18 @@ Pretraining exposes a model to broad data and optimizes a general learning objec
 For a causal language model, a simplified objective is:
 
 $$
-\mathcal{L}_{\mathrm{pre}}
-=
--\sum_{t=1}^{T}
-\log
-P_\theta
-\left(
-x_t\mid x_{<t}
-\right)
+\mathcal{L}_{\mathrm{pre}} = -\sum_{t=1}^{T} \log P_\theta \left( x_t \vert x_{\lt t} \right)
 $$
+
 
 The model learns to make the observed next token more probable given the previous context.
 
 For a multimodal generative view, image information can be included conceptually as:
 
 $$
-\mathcal{L}
-=
--\sum_{t=1}^{T}
-\log
-P_\theta
-\left(
-y_t
-\mid
-I,y_{<t}
-\right)
+\mathcal{L} = -\sum_{t=1}^{T} \log P_\theta \left( y_t \vert I, y_{\lt t} \right)
 $$
+
 
 where:
 
@@ -314,8 +300,7 @@ $$
 and the downstream dataset be:
 
 $$
-\mathcal{D}_{\mathrm{task}}
-=
+\mathcal{D}_{\mathrm{task}} =
 \{
 (x_i,y_i)
 \}_{i=1}^{N}
@@ -332,27 +317,13 @@ $$
 and optimizes a downstream objective:
 
 $$
-\theta^*
-=
-\underset{\theta}{\operatorname{argmin}}
-\;
-\mathcal{L}_{\mathrm{task}}
-\left(
-\theta;
-\mathcal{D}_{\mathrm{task}}
-\right)
+\theta^* = \arg\min_{\theta} \mathcal{L}_{\mathrm{task}} \left( \theta; \mathcal{D}_{\mathrm{task}} \right)
 $$
 
 A gradient update can be written as:
 
 $$
-\theta_{k+1}
-=
-\theta_k
--
-\eta
-\nabla_\theta
-\mathcal{L}_{\mathrm{task}}
+\theta_{k+1} = \theta_k - \eta \nabla_\theta \mathcal{L}_{\mathrm{task}}
 $$
 
 where:
@@ -424,8 +395,7 @@ The training data must teach both general representations and the downstream tas
 We begin from:
 
 $$
-\theta_0
-=
+\theta_0 =
 \text{pretrained parameters}
 $$
 
@@ -728,13 +698,13 @@ $$
 A simplified binary decision can be written as:
 
 $$
-\hat{y}
-=
+\hat{y} =
 \begin{cases}
-1 & s\ge\tau\\
-0 & s<\tau
+1 & s \ge \tau \\
+0 & s \lt \tau
 \end{cases}
 $$
+
 
 where $1$ represents Little Content and $\tau$ is a decision threshold.
 
@@ -747,8 +717,7 @@ Two screenshots can both look sparse yet belong to different classes.
 Therefore the model should not learn:
 
 $$
-\text{Little Content}
-=
+\text{Little Content} =
 \text{large blank area}
 $$
 
@@ -942,16 +911,14 @@ $$
 Most pretrained parameters remain fixed:
 
 $$
-\theta_0
-=
+\theta_0 =
 \text{frozen}
 $$
 
 while a smaller parameter set:
 
 $$
-\phi
-=
+\phi =
 \text{trainable}
 $$
 
@@ -1058,8 +1025,7 @@ Let the positive class be Little Content.
 Then:
 
 $$
-\mathrm{Precision}
-=
+\mathrm{Precision} =
 \frac{TP}{TP+FP}
 $$
 
@@ -1070,8 +1036,7 @@ Precision asks:
 Recall is:
 
 $$
-\mathrm{Recall}
-=
+\mathrm{Recall} =
 \frac{TP}{TP+FN}
 $$
 
@@ -1346,55 +1311,27 @@ This is the project state that Part 2 will inherit.
 
 ## Pretraining-style autoregressive objective
 
-$$
-\mathcal{L}_{\mathrm{pre}}
-=
--\sum_{t=1}^{T}
-\log
-P_\theta
-\left(
-x_t\mid x_{<t}
-\right)
-$$
+$$ \mathcal{L}_{\mathrm{pre}} = -\sum_{t=1}^{T} \log P_\theta \left( x_t \mid x_{<t} \right) $$
+
 
 ## Multimodal conditional-generation view
 
-$$
-\mathcal{L}
-=
--\sum_{t=1}^{T}
-\log
-P_\theta
-\left(
-y_t\mid I,y_{<t}
-\right)
-$$
+$$ \mathcal{L}_{\mathrm{pre}} = -\sum_{t=1}^{T} \log P_\theta \left( x_t \mid x_{<t} \right) $$
+
 
 ## Fine-tuning objective
 
 $$
-\theta^*
-=
-\underset{\theta}{\operatorname{argmin}}
-\;
-\mathcal{L}_{\mathrm{task}}
-\left(
-\theta;
-\mathcal{D}_{\mathrm{task}}
-\right)
+\theta^* = \underset{\theta}{\arg\min} \; \mathcal{L}_{\mathrm{task}} \left( \theta; \mathcal{D}_{\mathrm{task}} \right)
 $$
+
+
+
 
 ## Gradient update
 
-$$
-\theta_{k+1}
-=
-\theta_k
--
-\eta
-\nabla_\theta
-\mathcal{L}_{\mathrm{task}}
-$$
+$$ \theta_{k+1} = \theta_k - \eta \nabla_\theta \mathcal{L}_{\mathrm{task}} $$
+
 
 ## Reusable representation
 
@@ -1410,14 +1347,7 @@ $$
 
 ## Simplified binary decision
 
-$$
-\hat{y}
-=
-\begin{cases}
-1 & s\ge\tau\\
-0 & s<\tau
-\end{cases}
-$$
+$$ \hat{y} = \begin{cases} 1 & s \ge \tau \\ 0 & s < \tau \end{cases} $$
 
 ## Target-distribution generalization objective
 
@@ -1434,16 +1364,14 @@ $$
 ## Precision
 
 $$
-\mathrm{Precision}
-=
+\mathrm{Precision} =
 \frac{TP}{TP+FP}
 $$
 
 ## Recall
 
 $$
-\mathrm{Recall}
-=
+\mathrm{Recall} =
 \frac{TP}{TP+FN}
 $$
 
