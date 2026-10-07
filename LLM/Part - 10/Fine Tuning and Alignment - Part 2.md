@@ -2322,22 +2322,158 @@ Assistant-only loss masking, discussed in Question 7, determines **which token p
 
 ### Story Bridge 7 — The Sequence Contains Context Tokens We Do Not Want to Train the Model to Reproduce
 
-The SFT sequence includes:
+Question 6 showed us how cross-entropy measures whether the model gave enough probability to the **correct next token**.
 
-- System text.
-- User instruction.
+But an SFT example contains much more than the assistant answer.
+
+It may contain:
+
+- A system message.
+- A user instruction.
 - Image-related context.
-- Assistant answer.
+- An assistant-start marker.
+- The actual assistant response.
 
-If we calculate loss everywhere, the model spends direct supervision on reproducing text that is only supposed to condition the task.
+The model needs to **read** all of this context.
 
-So we need a loss mask.
+But we do not necessarily want to calculate supervised loss on all of it.
+
+That leads to **loss masking**.
 
 ## Question 7 — Which tokens should contribute to the SFT loss?
 
-A common instruction-SFT strategy is to compute loss only on assistant-response tokens.
+A common instruction-SFT setup calculates loss only on the assistant-response tokens.
 
-Define:
+The basic idea is:
+
+> **Context tokens help the model make the prediction, but assistant target tokens are the tokens we directly score with the supervised loss.**
+
+This is called **assistant-only loss masking**.
+
+---
+
+### Step 1 — Start with one complete training example
+
+Suppose the training conversation is:
+
+~~~text
+SYSTEM:
+You are a page-quality classifier.
+
+USER:
+<image>
+Classify this page.
+
+ASSISTANT:
+Little Content
+~~~
+
+Conceptually, the full sequence contains:
+
+~~~text
+SYSTEM TOKENS
++
+USER TOKENS
++
+IMAGE-RELATED CONTEXT
++
+ASSISTANT START
++
+Little
++
+Content
++
+EOS
+~~~
+
+All of these pieces may be needed to produce the correct answer.
+
+But they do not all need to contribute directly to the supervised loss.
+
+---
+
+### Step 2 — What do we actually want the model to learn?
+
+For this example, the task is:
+
+~~~text
+Given:
+
+system instruction
++
+SERP screenshot
++
+user request
+
+produce:
+
+Little Content
+~~~
+
+We want the model to learn:
+
+$$
+P_\theta
+\left(
+\text{Little Content}
+\mid
+\text{system + screenshot + user instruction}
+\right)
+$$
+
+We are **not** mainly trying to train the model to regenerate:
+
+~~~text
+You are a page-quality classifier.
+~~~
+
+or:
+
+~~~text
+Classify this page.
+~~~
+
+Those are the instructions that define the task.
+
+They are input context.
+
+The assistant response is the supervised output.
+
+---
+
+### Step 3 — Context versus target
+
+This distinction is the key idea.
+
+~~~text
+SYSTEM MESSAGE
+        ↓
+Context
+
+USER MESSAGE
+        ↓
+Context
+
+IMAGE
+        ↓
+Context
+
+ASSISTANT RESPONSE
+        ↓
+Supervised target
+~~~
+
+So:
+
+> **The model should attend to the context, but the loss should be calculated on the assistant answer.**
+
+This is why we need a loss mask.
+
+---
+
+### Step 4 — Define a loss mask
+
+For every token position $t$, define:
 
 $$
 m_t
@@ -2351,14 +2487,25 @@ $$
 m_t
 =
 \begin{cases}
-1 & \text{assistant target token}\\
-0 & \text{context token}
+1, & \text{if position }t\text{ is a supervised assistant target token}\\
+0, & \text{if position }t\text{ is context or otherwise ignored}
 \end{cases}
 $$
 
-Then:
+So:
+
+~~~text
+m_t = 1
+→ include this token in the loss
+
+m_t = 0
+→ do not include this token in the loss
+~~~
+
+The masked loss is:
 
 $$
+\boxed{
 \mathcal{L}
 =
 -
@@ -2373,61 +2520,607 @@ y_t\mid c_t
 }{
 \sum_t m_t
 }
+}
 $$
 
-Conceptually:
+This looks complicated, but the meaning is simple:
+
+> Calculate cross-entropy only for positions where the mask equals 1, then average over those supervised positions.
+
+---
+
+### Step 5 — Apply the mask to the Qwen example
+
+Suppose the sequence is simplified to:
 
 ~~~text
-SYSTEM
-attend to it
-do not directly supervise it
-
-USER
-attend to it
-do not directly supervise it
-
-IMAGE
-condition on it
-not a text target
-
-ASSISTANT TARGET
-attend to it
-supervise it
+SYSTEM | USER | IMAGE | ASSISTANT | Little | Content | EOS
 ~~~
 
-### Common implementation convention
+A conceptual loss mask is:
 
-Many causal-LM pipelines use an ignore value such as:
+~~~text
+SYSTEM       → 0
+USER         → 0
+IMAGE        → 0
+ASSISTANT    → 0
+Little       → 1
+Content      → 1
+EOS          → 1
+~~~
+
+So:
+
+~~~text
+Context tokens
+        ↓
+used by the model
+but not directly scored by supervised loss
+
+
+Assistant answer tokens
+        ↓
+used by the model
+and directly scored by supervised loss
+~~~
+
+---
+
+### Step 6 — Very important: masked does NOT mean ignored by the model
+
+This is one of the easiest points to misunderstand.
+
+Suppose the user instruction is masked from the loss.
+
+That does **not** mean the model cannot see it.
+
+The model still attends to the instruction.
+
+For example:
+
+~~~text
+USER:
+Classify this page.
+~~~
+
+may have:
+
+~~~text
+attention = active
+loss = masked
+~~~
+
+The model reads the instruction and uses it to predict the assistant answer.
+
+We simply do not calculate a target loss saying:
+
+~~~text
+Please predict the token "Classify".
+~~~
+
+So:
+
+> **Loss masking controls where we measure error. It does not necessarily control what the model can attend to.**
+
+This distinction is crucial.
+
+---
+
+### Step 7 — Attention masking and loss masking are different
+
+These two masks solve different problems.
+
+#### Attention mask
+
+Answers:
+
+> Which positions are valid and available to participate in attention?
+
+For a real prompt token:
+
+~~~text
+attention mask = 1
+~~~
+
+For padding:
+
+~~~text
+attention mask = 0
+~~~
+
+#### Loss mask
+
+Answers:
+
+> Which target positions should contribute to the supervised loss?
+
+For a prompt token:
+
+~~~text
+loss mask = 0
+~~~
+
+For an assistant target token:
+
+~~~text
+loss mask = 1
+~~~
+
+So a user token can have:
+
+~~~text
+attention mask = 1
+loss mask      = 0
+~~~
+
+That means:
+
+> Read this token, but do not directly score the model on reproducing it.
+
+We return to the attention-mask distinction again in Question 24.
+
+---
+
+### Step 8 — How does this connect to the one-token shift from Question 4?
+
+This is important.
+
+Suppose the simplified sequence is:
+
+~~~text
+USER | ASSISTANT | Little | Content | EOS
+~~~
+
+From Question 4, remember:
+
+> Logits at one position predict the **next** token.
+
+So:
+
+~~~text
+logits after ASSISTANT
+        ↓
+predict Little
+
+logits after Little
+        ↓
+predict Content
+
+logits after Content
+        ↓
+predict EOS
+~~~
+
+The assistant-only labels can therefore be represented conceptually as:
+
+~~~text
+Input tokens:
+
+USER   ASSISTANT   Little   Content   EOS
+
+
+Labels:
+
+-100   -100        Little   Content   EOS
+~~~
+
+After the model's usual next-token alignment, the useful supervised comparisons are:
+
+~~~text
+logits after ASSISTANT
+        ↓
+target Little
+
+
+logits after Little
+        ↓
+target Content
+
+
+logits after Content
+        ↓
+target EOS
+~~~
+
+So **loss masking** and **next-token shifting** work together.
+
+They are not the same thing.
+
+---
+
+### Step 9 — What does -100 mean?
+
+Many causal-language-model training implementations use:
 
 ~~~text
 -100
 ~~~
 
-for positions that should not contribute to cross-entropy.
+as an ignore value in the labels tensor.
+
+For example:
+
+~~~text
+input_ids:
+
+[system] [user] [assistant] [Little] [Content] [EOS]
+
+
+labels:
+
+[-100]  [-100] [-100]      [Little] [Content] [EOS]
+~~~
+
+The value:
+
+~~~text
+-100
+~~~
+
+does not mean that token ID -100 exists in the vocabulary.
+
+It usually means:
+
+> **Do not calculate cross-entropy loss for this label position.**
+
+In common implementations, cross-entropy is configured with an ignore index, often -100.
+
+So those positions are skipped when calculating the supervised loss.
+
+---
+
+### Step 10 — Numerical example
+
+Suppose the assistant answer has three supervised tokens:
+
+~~~text
+Little
+Content
+EOS
+~~~
+
+and their losses are:
+
+$$
+\mathcal{L}_{\text{Little}}
+=
+0.20
+$$
+
+$$
+\mathcal{L}_{\text{Content}}
+=
+0.50
+$$
+
+$$
+\mathcal{L}_{\text{EOS}}
+=
+0.10
+$$
+
+The prompt tokens are masked.
+
+So the example loss is calculated only from those three assistant targets:
+
+$$
+\mathcal{L}_{\mathrm{example}}
+=
+\frac{
+0.20+0.50+0.10
+}{3}
+$$
+
+Therefore:
+
+$$
+\mathcal{L}_{\mathrm{example}}
+\approx
+0.267
+$$
+
+The system prompt and user instruction do not add separate token-loss terms.
+
+But they still influence these three predictions because they are part of the context.
+
+---
+
+### Step 11 — Why not calculate loss on the prompt as well?
+
+We could train a causal language model on every token in the sequence.
+
+But for instruction SFT, that may waste supervised capacity on predicting text that was **given to the model as input**.
+
+For our task, we care most about:
+
+~~~text
+Given this screenshot and instruction
+        ↓
+produce the correct classification response
+~~~
+
+rather than:
+
+~~~text
+Given the beginning of the user instruction
+        ↓
+reconstruct the rest of the user instruction
+~~~
+
+Assistant-only masking focuses the supervised objective on the behavior we actually want.
+
+---
+
+### Step 12 — Does the image get a token loss?
+
+Not in the same sense as the assistant text.
+
+The screenshot is used as **conditioning information**.
 
 Conceptually:
 
 ~~~text
-input_ids:
-[system] [user] [image marker] [assistant marker] [Little] [Content]
-
-labels:
-[-100]  [-100] [-100]         [-100]             [Little] [Content]
+SERP screenshot
+        ↓
+vision encoder
+        ↓
+visual representation
+        ↓
+Qwen uses that representation
+to predict assistant tokens
 ~~~
 
-The exact boundaries depend on the chosen Qwen chat template.
+The assistant token loss depends on the image.
+
+So gradients can still flow through trainable parts of the visual/multimodal pathway even though we are not asking:
+
+~~~text
+What is the correct image token?
+~~~
+
+This connects directly to Question 8.
+
+---
+
+### Step 13 — Loss masking versus parameter freezing
+
+Another important interview distinction:
+
+~~~text
+LOSS MASKING
+
+asks:
+
+Which prediction positions
+should contribute to the loss?
+~~~
+
+while:
+
+~~~text
+PARAMETER FREEZING
+
+asks:
+
+Which model parameters
+are allowed to update?
+~~~
+
+These are completely different decisions.
+
+For example:
+
+~~~text
+User prompt
+loss masked
+        ↓
+still affects prediction
+
+LoRA adapter
+trainable
+        ↓
+receives gradient from assistant loss
+
+Frozen base weight
+not updated
+        ↓
+still participates in forward pass
+~~~
+
+So:
+
+> **Loss masking chooses the supervised positions. Freezing chooses the trainable parameters.**
+
+---
+
+### Step 14 — Full Qwen picture
+
+For our project:
+
+~~~text
+SYSTEM
+You are a page-quality classifier.
+        ↓
+context only
+
+
+USER
+<image>
+Classify this page.
+        ↓
+context only
+
+
+ASSISTANT
+Little Content
+        ↓
+supervised target
+~~~
+
+Training conceptually becomes:
+
+~~~text
+System + user + image context
+        ↓
+Qwen
+        ↓
+predict Little
+        ↓
+calculate loss
+
+
+System + user + image context
++ TRUE Little
+        ↓
+Qwen
+        ↓
+predict Content
+        ↓
+calculate loss
+
+
+System + user + image context
++ TRUE Little + TRUE Content
+        ↓
+Qwen
+        ↓
+predict EOS
+        ↓
+calculate loss
+~~~
+
+But we do not calculate supervised target loss on the system/user context itself.
+
+---
+
+### Step 15 — Connection to Questions 4, 5, and 6
+
+The pieces now fit together:
+
+~~~text
+QUESTION 4
+Next-token alignment
+        ↓
+Which position predicts which token?
+
+
+QUESTION 5
+Teacher forcing
+        ↓
+Which previous target tokens are used as context?
+
+
+QUESTION 6
+Cross-entropy
+        ↓
+How wrong was each supervised prediction?
+
+
+QUESTION 7
+Loss masking
+        ↓
+Which token positions should be included
+when calculating that loss?
+~~~
+
+This is the complete SFT supervision story so far.
+
+---
+
+### Interview Explanation
+
+A simple interview answer is:
+
+> **In instruction SFT, the input sequence contains both context tokens and assistant-response tokens. The model needs to read the system prompt, user instruction, and image context, but I usually do not want to calculate supervised loss on those context tokens. I only want to train the model on the assistant response. So I use a loss mask. Context positions get a mask value of 0, while assistant target positions get a value of 1. The model can still attend to the masked context; masking only means those positions do not directly contribute to cross-entropy. In many causal-LM implementations, ignored label positions are represented using -100. For my Qwen example, the screenshot and instruction are context, while the tokens for "Little Content" and possibly EOS are the supervised targets.**
+
+If the interviewer asks:
+
+> **Does masking the prompt mean the model cannot see the prompt?**
+
+A simple answer is:
+
+> **No. The prompt is still part of the input and the model attends to it. We are only saying that we do not calculate supervised loss on reproducing the prompt itself.**
+
+If the interviewer asks:
+
+> **What is the difference between loss masking and freezing?**
+
+A simple answer is:
+
+> **Loss masking decides which token positions contribute to the loss. Freezing decides which model parameters are allowed to update.**
+
+---
 
 ### Qwen Project Application
 
-The screenshot and task instruction should condition the answer.
+For the Little Content project:
 
-The assistant label supplies the direct supervision.
+~~~text
+SERP screenshot
++
+system / user instruction
+        ↓
+CONTEXT
+loss masked
+but still visible to the model
+
+
+Little
+Content
+EOS
+        ↓
+ASSISTANT TARGET
+included in supervised loss
+~~~
+
+The screenshot and instruction tell Qwen **what to classify**.
+
+The assistant tokens tell Qwen **what response should become more probable**.
 
 ### Design Decision
 
-Our default design is **assistant-only loss masking**.
+Our default theoretical design is **assistant-only loss masking**.
 
-We will not train the model to reconstruct the user's instruction.
+For supervised positions:
+
+$$
+m_t=1
+$$
+
+For context / ignored positions:
+
+$$
+m_t=0
+$$
+
+and the masked objective is:
+
+$$
+\boxed{
+\mathcal{L}
+=
+-
+\frac{
+\sum_t
+m_t
+\log
+P_\theta
+\left(
+y_t\mid c_t
+\right)
+}{
+\sum_t m_t
+}
+}
+$$
+
+In implementation, ignored textual label positions may commonly be represented by:
+
+~~~text
+-100
+~~~
+
+depending on the training framework and loss function configuration.
 
 ---
 
