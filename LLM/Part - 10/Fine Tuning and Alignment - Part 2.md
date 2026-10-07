@@ -1052,51 +1052,451 @@ For the Qwen project:
 
 ### Story Bridge 5 — During Training the Correct Assistant Tokens Already Exist
 
-Inference must generate future tokens sequentially.
+Question 4 showed us how next-token prediction is aligned.
 
-SFT training is different because the complete correct response is already present in the dataset.
+Now we need one more idea:
+
+> During training, when the model predicts the next token, what previous assistant tokens should it use?
+
+The answer is **teacher forcing**.
 
 ## Question 5 — What is teacher forcing during SFT?
 
-Teacher forcing predicts each target token while conditioning on the **ground-truth previous target tokens**:
+Teacher forcing means:
 
-$$
-P_\theta \left( y_t \mid x, y_{\lt t}^{\text{ground truth}} \right)
-$$
+> **During training, the model is given the correct previous target tokens from the training data while it learns to predict the next token.**
 
+The model does **not** use its own previous prediction as the next training input.
 
-The entire target sequence is known during training, so token-position computations can be parallelized under a causal mask.
+---
 
-### Training
+### Start with our Qwen example
+
+Suppose the correct assistant response is:
 
 ~~~text
-Ground truth y1, y2, y3, y4 is already known.
-
-The model predicts the next-token distribution
-at all supervised positions under causal masking.
+Little Content
 ~~~
 
-### Inference
+Assume it tokenizes as:
 
 ~~~text
-y1 does not exist yet.
-Generate y1.
+y1 = Little
+y2 = Content
+~~~
+
+Let:
+
+$$
+x
+$$
+
+represent the screenshot plus the task instruction.
+
+For the first token, there is no previous assistant token yet.
+
+So the model learns:
+
+$$
+P_\theta
+\left(
+y_1\mid x
+\right)
+$$
+
+or:
+
+$$
+P_\theta
+\left(
+\text{Little}\mid x
+\right)
+$$
+
+Conceptually:
+
+~~~text
+Screenshot + instruction
         ↓
-Then generate y2 conditioned on generated y1.
+predict "Little"
 ~~~
+
+---
+
+### Now the important part
+
+Next, the model has to learn to predict:
+
+~~~text
+Content
+~~~
+
+During teacher forcing, we give it the **correct previous token**:
+
+~~~text
+Little
+~~~
+
+from the training dataset.
+
+So the model learns:
+
+$$
+P_\theta
+\left(
+y_2
+\mid
+x,y_1^{\text{true}}
+\right)
+$$
+
+or:
+
+$$
+P_\theta
+\left(
+\text{Content}
+\mid
+x,\text{Little}
+\right)
+$$
+
+Conceptually:
+
+~~~text
+Screenshot + instruction + TRUE Little
+        ↓
+predict "Content"
+~~~
+
+The important word is:
+
+> **TRUE**
+
+The previous token comes from the labelled training example.
+
+---
+
+### Why is this called teacher forcing?
+
+Think of a teacher correcting the model at every step.
+
+Suppose the correct sequence is:
+
+~~~text
+Little → Content
+~~~
+
+But imagine that, early in training, the model would have predicted:
+
+~~~text
+Small
+~~~
+
+instead of:
+
+~~~text
+Little
+~~~
+
+Without teacher forcing, the next input could become:
+
+~~~text
+Screenshot + instruction + Small
+        ↓
+predict next token
+~~~
+
+Now the model has already moved away from the correct training sequence.
+
+With teacher forcing, we ignore that wrong generated token for the purpose of the next training position.
+
+The teacher says:
+
+~~~text
+The correct previous token was "Little".
+
+Use "Little" as your history.
+
+Now predict the next token.
+~~~
+
+So training remains:
+
+~~~text
+Screenshot + instruction
+        ↓
+target = Little
+
+
+Screenshot + instruction + TRUE Little
+        ↓
+target = Content
+~~~
+
+That is teacher forcing.
+
+---
+
+### Mathematical notation
+
+In general, when predicting target token $y_t$, the model conditions on:
+
+$$
+x
+$$
+
+and the correct earlier target tokens:
+
+$$
+y_{<t}^{\text{true}}
+=
+\left(
+y_1,
+y_2,
+\ldots,
+y_{t-1}
+\right)
+$$
+
+So the teacher-forced prediction is:
+
+$$
+\boxed{
+P_\theta
+\left(
+y_t
+\mid
+x,
+y_{<t}^{\text{true}}
+\right)
+}
+$$
+
+where:
+
+- $x$ = original input, such as screenshot + instruction.
+- $y_t$ = token currently being predicted.
+- $y_{<t}^{\text{true}}$ = all correct target tokens before $y_t$.
+
+---
+
+### Training versus inference
+
+This is the key distinction.
+
+#### During training
+
+The correct answer already exists in the dataset.
+
+So:
+
+~~~text
+Screenshot + prompt
+        ↓
+predict Little
+
+Screenshot + prompt + TRUE Little
+        ↓
+predict Content
+
+Screenshot + prompt + TRUE Little + TRUE Content
+        ↓
+predict EOS
+~~~
+
+The model always receives the **correct previous target tokens**.
+
+#### During inference
+
+The correct answer is not available.
+
+The model has to use what it generated itself:
+
+~~~text
+Screenshot + prompt
+        ↓
+model generates Little
+
+Screenshot + prompt + GENERATED Little
+        ↓
+model generates Content
+~~~
+
+So the simplest comparison is:
+
+~~~text
+TRAINING
+uses ground-truth previous tokens
+
+INFERENCE
+uses model-generated previous tokens
+~~~
+
+---
+
+### What if the model makes a mistake during inference?
+
+Suppose the correct answer should be:
+
+~~~text
+Little → Content
+~~~
+
+but the model generates:
+
+~~~text
+Small
+~~~
+
+as its first token.
+
+During inference, the next step must continue from:
+
+~~~text
+Screenshot + prompt + Small
+~~~
+
+because there is no teacher available to replace Small with Little.
+
+This is different from training, where the correct history is always available.
+
+That is one reason training is easier than inference.
+
+---
+
+### Why can teacher-forced training be parallel?
+
+The logical probability of a target sequence is still autoregressive:
+
+$$
+P_\theta
+\left(
+y_1,y_2,y_3
+\mid
+x
+\right)
+=
+P_\theta
+\left(
+y_1\mid x
+\right)
+P_\theta
+\left(
+y_2\mid x,y_1
+\right)
+P_\theta
+\left(
+y_3\mid x,y_1,y_2
+\right)
+$$
+
+That looks sequential.
+
+But during training:
+
+$$
+y_1,y_2,y_3
+$$
+
+are already known.
+
+So the whole sequence can be placed in one training input:
+
+$$
+[x,y_1,y_2,y_3]
+$$
+
+The causal mask makes sure that each position only sees the correct prefix.
+
+Conceptually:
+
+~~~text
+Position predicting y1
+sees:
+x
+
+Position predicting y2
+sees:
+x + TRUE y1
+
+Position predicting y3
+sees:
+x + TRUE y1 + TRUE y2
+~~~
+
+Because all the correct tokens already exist in the training data, the Transformer can compute these token positions in the same forward pass.
+
+At inference time, the future tokens do not exist yet, so generation must happen one token at a time.
+
+---
 
 ### Connection to Part 8
 
-This is exactly why training can exploit positional parallelism while autoregressive inference cannot generate unknown future output positions simultaneously.
+This connects directly to what we learned about training versus inference.
+
+~~~text
+TRAINING
+
+Future ground-truth tokens are already known
+        ↓
+Teacher forcing provides correct history
+        ↓
+Token positions can be processed in parallel
+under a causal mask
+~~~
+
+but:
+
+~~~text
+INFERENCE
+
+Future output tokens are unknown
+        ↓
+Generate one token
+        ↓
+append it
+        ↓
+generate the next token
+~~~
+
+---
 
 ### Qwen Project Application
 
-Our class responses are short, but they still use the same teacher-forced causal objective.
+For our Little Content classifier:
+
+~~~text
+TRAINING
+
+Screenshot + instruction
+        ↓
+predict Little
+
+Screenshot + instruction + TRUE Little
+        ↓
+predict Content
+~~~
+
+During inference:
+
+~~~text
+Screenshot + instruction
+        ↓
+generate token 1
+
+Screenshot + instruction + GENERATED token 1
+        ↓
+generate token 2
+~~~
+
+So the core idea is:
+
+> **Teacher forcing means that training uses the correct previous answer tokens, while inference uses the model's own generated previous tokens.**
 
 ### Design Decision
 
-The project uses standard teacher-forced SFT.
-
+The Qwen project uses standard teacher-forced causal SFT.
 
 ---
 
