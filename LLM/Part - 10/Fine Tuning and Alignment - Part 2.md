@@ -115,8 +115,7 @@ Supervised Fine-Tuning, or **SFT**, adapts a pretrained model using examples con
 A generic SFT dataset is:
 
 $$
-\mathcal{D}_{\mathrm{SFT}}
-=
+\mathcal{D}_{\mathrm{SFT}} =
 \{
 (x_i,y_i)
 \}_{i=1}^{N}
@@ -136,9 +135,7 @@ $$
 Equivalently, we minimize negative log-likelihood:
 
 $$
-\mathcal{L}_{\mathrm{SFT}}
-=
--
+\mathcal{L}_{\mathrm{SFT}} = -
 \sum_{i=1}^{N}
 \log
 P_\theta
@@ -150,8 +147,7 @@ $$
 If:
 
 $$
-y_i
-=
+y_i =
 \left(
 y_{i,1},
 y_{i,2},
@@ -163,35 +159,17 @@ $$
 then:
 
 $$
-P_\theta(y_i\mid x_i)
-=
-\prod_{t=1}^{T_i}
-P_\theta
-\left(
-y_{i,t}
-\mid
-x_i,
-y_{i,<t}
-\right)
+P_\theta(y_i \mid x_i) = \prod_{t=1}^{T_i} P_\theta \left( y_{i,t} \mid x_i, y_{i,\lt t} \right)
 $$
+
+
 
 and:
 
 $$
-\mathcal{L}_{\mathrm{SFT}}
-=
--
-\sum_{i=1}^{N}
-\sum_{t=1}^{T_i}
-\log
-P_\theta
-\left(
-y_{i,t}
-\mid
-x_i,
-y_{i,<t}
-\right)
+\mathcal{L}_{\mathrm{SFT}} = - \sum_{i=1}^{N} \sum_{t=1}^{T_i} \log P_\theta \left( y_{i,t} \mid x_i, y_{i,<t} \right)
 $$
+
 
 ### Intuition
 
