@@ -539,3 +539,487 @@ Our class responses are short, but they still use the same teacher-forced causal
 ### Design Decision
 
 The project uses standard teacher-forced SFT.
+
+
+---
+
+### Story Bridge 6 — Teacher Forcing Gives Predictions, but We Still Need a Numeric Error Signal
+
+The model produces a vocabulary distribution at every supervised position.
+
+Training still needs a scalar objective that says how wrong those predictions were.
+
+That brings us to token-level cross-entropy.
+
+## Question 6 — What loss does generative SFT use?
+
+Let the vocabulary logits at supervised position $t$ be:
+
+$$
+z_t
+=
+\left[
+z_{t,1},
+z_{t,2},
+\ldots,
+z_{t,V}
+\right]
+$$
+
+Softmax converts those logits into a probability distribution:
+
+$$
+P_\theta(k\mid c_t)
+=
+\frac{
+e^{z_{t,k}}
+}{
+\sum_{j=1}^{V}e^{z_{t,j}}
+}
+$$
+
+where $c_t$ is the causal context.
+
+If the correct target token is $y_t$, the token loss is:
+
+$$
+\mathcal{L}_t
+=
+-
+\log
+P_\theta
+\left(
+y_t\mid c_t
+\right)
+$$
+
+For $T$ supervised response tokens:
+
+$$
+\mathcal{L}_{\mathrm{example}}
+=
+-
+\frac{1}{T}
+\sum_{t=1}^{T}
+\log
+P_\theta
+\left(
+y_t\mid c_t
+\right)
+$$
+
+### Numerical intuition
+
+If the correct token gets probability:
+
+$$
+0.8
+$$
+
+then:
+
+$$
+-\log(0.8)
+\approx
+0.223
+$$
+
+If it gets only:
+
+$$
+0.1
+$$
+
+then:
+
+$$
+-\log(0.1)
+\approx
+2.303
+$$
+
+So confident correct predictions produce small loss, while low probability on the correct token produces much larger loss.
+
+### Qwen Project Application
+
+The loss pushes Qwen to assign more probability to the correct Little Content class response given the screenshot and instruction.
+
+### Design Decision
+
+The primary SFT objective is **token-level negative log-likelihood / cross-entropy over the assistant response**.
+
+---
+
+### Story Bridge 7 — The Sequence Contains Context Tokens We Do Not Want to Train the Model to Reproduce
+
+The SFT sequence includes:
+
+- System text.
+- User instruction.
+- Image-related context.
+- Assistant answer.
+
+If we calculate loss everywhere, the model spends direct supervision on reproducing text that is only supposed to condition the task.
+
+So we need a loss mask.
+
+## Question 7 — Which tokens should contribute to the SFT loss?
+
+A common instruction-SFT strategy is to compute loss only on assistant-response tokens.
+
+Define:
+
+$$
+m_t
+\in
+\{0,1\}
+$$
+
+with:
+
+$$
+m_t
+=
+\begin{cases}
+1 & \text{assistant target token}\\
+0 & \text{context token}
+\end{cases}
+$$
+
+Then:
+
+$$
+\mathcal{L}
+=
+-
+\frac{
+\sum_t
+m_t
+\log
+P_\theta
+\left(
+y_t\mid c_t
+\right)
+}{
+\sum_t m_t
+}
+$$
+
+Conceptually:
+
+~~~text
+SYSTEM
+attend to it
+do not directly supervise it
+
+USER
+attend to it
+do not directly supervise it
+
+IMAGE
+condition on it
+not a text target
+
+ASSISTANT TARGET
+attend to it
+supervise it
+~~~
+
+### Common implementation convention
+
+Many causal-LM pipelines use an ignore value such as:
+
+~~~text
+-100
+~~~
+
+for positions that should not contribute to cross-entropy.
+
+Conceptually:
+
+~~~text
+input_ids:
+[system] [user] [image marker] [assistant marker] [Little] [Content]
+
+labels:
+[-100]  [-100] [-100]         [-100]             [Little] [Content]
+~~~
+
+The exact boundaries depend on the chosen Qwen chat template.
+
+### Qwen Project Application
+
+The screenshot and task instruction should condition the answer.
+
+The assistant label supplies the direct supervision.
+
+### Design Decision
+
+Our default design is **assistant-only loss masking**.
+
+We will not train the model to reconstruct the user's instruction.
+
+---
+
+### Story Bridge 8 — A Masked Context Can Still Affect the Gradient
+
+Loss masking can sound as though the prompt and image are ignored during training.
+
+That is not what happens.
+
+The assistant prediction depends on those inputs.
+
+We need to separate where loss is measured from where gradients can flow.
+
+## Question 8 — If prompt and image positions are masked from the loss, can the model still learn from them?
+
+Yes.
+
+Suppose the supervised loss is:
+
+$$
+\mathcal{L}
+=
+-
+\log
+P_\theta
+\left(
+y
+\mid
+I,x
+\right)
+$$
+
+where:
+
+- $I$ is visual information.
+- $x$ is textual context.
+
+Even though the explicit target loss is evaluated on the assistant output, the prediction depends on the image and prompt.
+
+For trainable visual-path parameters $\theta_v$:
+
+$$
+\frac{
+\partial\mathcal{L}
+}{
+\partial\theta_v
+}
+=
+\frac{
+\partial\mathcal{L}
+}{
+\partial h
+}
+\frac{
+\partial h
+}{
+\partial\theta_v
+}
+$$
+
+if the visual path contributes to hidden representation $h$.
+
+### Crucial distinction
+
+~~~text
+LOSS MASKING
+Where is prediction error measured?
+
+FREEZING
+Which parameters are allowed to update?
+~~~
+
+These are different decisions.
+
+### Example
+
+The vision encoder may be frozen.
+
+Then:
+
+- Its output still conditions the assistant prediction.
+- Gradients may mathematically reach its output.
+- But its parameters are not updated.
+
+A trainable multimodal connector can still receive gradient from the assistant loss.
+
+### Qwen Project Application
+
+The image can teach the downstream classifier behavior even though we do not define a separate "image-token loss."
+
+### Design Decision
+
+We will keep **loss masking** and **parameter freezing** conceptually separate throughout the project.
+
+---
+
+### Story Bridge 9 — The Human Class Name May Be Several Model Tokens
+
+"Little Content" looks like one class label to us.
+
+The tokenizer may represent it using multiple tokens.
+
+That affects both training loss and later class scoring.
+
+## Question 9 — What happens if a class label contains multiple tokens?
+
+Suppose the positive label tokenizes as:
+
+$$
+y_1,y_2
+$$
+
+Then:
+
+$$
+P_\theta(y_1,y_2\mid x)
+=
+P_\theta(y_1\mid x)
+P_\theta(y_2\mid x,y_1)
+$$
+
+and:
+
+$$
+\log
+P_\theta(y_1,y_2\mid x)
+=
+\log
+P_\theta(y_1\mid x)
++
+\log
+P_\theta(y_2\mid x,y_1)
+$$
+
+SFT therefore supervises every token in the canonical target string.
+
+### Why this matters for classification
+
+Suppose one class label takes one token and another takes three.
+
+Raw sequence log-probability contains more additive terms for the longer label.
+
+Potential strategies include:
+
+- Use short canonical labels.
+- Compare length-normalized sequence scores.
+- Add dedicated special class tokens if justified.
+- Use a classification head instead of text generation.
+
+### Qwen Project Application
+
+We should not allow arbitrary equivalent outputs such as:
+
+~~~text
+Little Content
+
+This is Little Content
+
+The page has little content
+
+LC
+~~~
+
+That creates unnecessary output variation.
+
+### Design Decision
+
+The project will use a **small canonical target vocabulary**.
+
+The exact target strings and tokenizer behavior will be finalized in Part 3.
+
+---
+
+### Story Bridge 10 — A Binary Business Task Does Not Necessarily Require Free-Form Generation
+
+We are using a generative VLM, but the business output is binary.
+
+That creates a real architectural choice:
+
+> Generate a label as text, or attach a dedicated classifier?
+
+## Question 10 — Generative SFT or a classification head: which should we use?
+
+### Option A — Generative label prediction
+
+The model produces a canonical class response.
+
+The training objective remains ordinary causal-LM SFT.
+
+Advantages:
+
+- Preserves the native VLM/chat interface.
+- Reuses standard SFT tooling.
+- Easy to extend to richer responses later.
+- Fits naturally with instruction tuning.
+
+Limitations:
+
+- Label tokenization must be handled carefully.
+- Free generation can produce formatting variants.
+- Generative probabilities are not automatically calibrated binary probabilities.
+
+### Option B — Add a classification head
+
+Suppose hidden representation $h$ feeds a two-class head:
+
+$$
+z
+=
+W_ch+b
+$$
+
+where:
+
+$$
+z
+\in
+\mathbb{R}^{2}
+$$
+
+Then:
+
+$$
+P(y=k\mid x)
+=
+\frac{
+e^{z_k}
+}{
+\sum_{j=1}^{2}e^{z_j}
+}
+$$
+
+Advantages:
+
+- Direct class logits.
+- Efficient for pure classification.
+- Easier to threshold and calibrate.
+
+Limitations:
+
+- Modifies the native model interface.
+- Requires choosing the representation used for classification.
+- Gives up some flexibility of a generative chat formulation.
+
+### Qwen Project Application
+
+Because the project is framed as fine-tuning a Qwen VLM and later parts explicitly study instruction/chat tuning, our main theoretical design will use **generative SFT**.
+
+A classifier head remains a valid experimental baseline.
+
+### Design Decision
+
+Primary:
+
+$$
+\text{Generative SFT with canonical class responses}
+$$
+
+Secondary ablation:
+
+$$
+\text{Dedicated classification head}
+$$
+
+if supported cleanly by the implementation.
