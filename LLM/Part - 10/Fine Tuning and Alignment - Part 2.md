@@ -1476,102 +1476,847 @@ The Qwen project uses standard teacher-forced causal SFT.
 
 ### Story Bridge 6 — Teacher Forcing Gives Predictions, but We Still Need a Numeric Error Signal
 
-The model produces a vocabulary distribution at every supervised position.
+Teacher forcing tells us **what context the model should use** while predicting each target token.
 
-Training still needs a scalar objective that says how wrong those predictions were.
+But after the model makes a prediction, training still needs another thing:
 
-That brings us to token-level cross-entropy.
+> **A number that tells us how good or bad that prediction was.**
+
+That number is the **loss**.
+
+For generative SFT, the standard loss is token-level **cross-entropy**, which in this setting is also the negative log-likelihood of the correct next token.
 
 ## Question 6 — What loss does generative SFT use?
 
-Let the vocabulary logits at supervised position $t$ be:
+The easiest way to understand the loss is to follow one prediction from beginning to end.
+
+---
+
+### Step 1 — The model does not directly output one word
+
+Suppose Qwen is trying to predict the next token.
+
+It does not directly output:
+
+~~~text
+Little
+~~~
+
+Instead, it produces one raw score for **every token in the vocabulary**.
+
+Suppose our toy vocabulary contains only:
+
+~~~text
+Little
+Content
+Not
+Other
+~~~
+
+The model might produce raw scores such as:
+
+~~~text
+Little   = 3.2
+Content  = 1.1
+Not      = 0.4
+Other    = -0.2
+~~~
+
+These raw scores are called **logits**.
+
+At supervised position $t$, we can write the full vocabulary-logit vector as:
 
 $$
-z_t =
+\mathbf{z}_t
+=
 \left[
 z_{t,1},
 z_{t,2},
 \ldots,
 z_{t,V}
 \right]
+\in
+\mathbb{R}^{V}
 $$
 
-Softmax converts those logits into a probability distribution:
+where:
+
+- $t$ = the current supervised prediction position.
+- $V$ = vocabulary size.
+- $z_{t,k}$ = the raw score assigned to vocabulary token $k$.
+
+So the first important interview point is:
+
+> **At every supervised position, the model produces one logit for every token in its vocabulary.**
+
+---
+
+### Step 2 — Logits are not probabilities
+
+A logit can be any real number:
+
+~~~text
+3.2
+1.1
+0.4
+-0.2
+~~~
+
+So we cannot directly interpret the logits as probabilities.
+
+We apply **softmax**:
 
 $$
-P_\theta(k\mid c_t) =
+P_\theta
+\left(
+k\mid c_t
+\right)
+=
 \frac{
 e^{z_{t,k}}
 }{
-\sum_{j=1}^{V}e^{z_{t,j}}
+\sum_{j=1}^{V}
+e^{z_{t,j}}
 }
 $$
 
-where $c_t$ is the causal context.
+where:
 
-If the correct target token is $y_t$, the token loss is:
+- $k$ = a possible vocabulary token.
+- $c_t$ = the context available when predicting at position $t$.
+- $\theta$ = the model parameters.
+
+Softmax converts all the logits into probabilities that add up to 1.
+
+For example:
+
+~~~text
+Little   → 0.80
+Content  → 0.10
+Not      → 0.07
+Other    → 0.03
+~~~
+
+and:
 
 $$
-\mathcal{L}_t = -
-\log
+0.80+0.10+0.07+0.03=1
+$$
+
+---
+
+### Step 3 — What does $c_t$ mean?
+
+The notation:
+
+$$
+c_t
+$$
+
+simply means:
+
+> **Everything the model is allowed to see when making prediction $t$.**
+
+For our Qwen project, if the model is predicting the first assistant token:
+
+~~~text
+Little
+~~~
+
+then the context might be:
+
+~~~text
+SERP screenshot
++
+task instruction
++
+assistant-start context
+~~~
+
+If the model is predicting:
+
+~~~text
+Content
+~~~
+
+teacher forcing means the context also contains the correct previous token:
+
+~~~text
+Little
+~~~
+
+So:
+
+$$
 P_\theta
 \left(
 y_t\mid c_t
 \right)
 $$
 
-For $T$ supervised response tokens:
+means:
+
+> **What probability did the model give to the correct next token, given the context available at that position?**
+
+---
+
+### Step 4 — Compare the prediction with the correct token
+
+Suppose the correct next token is:
+
+~~~text
+Little
+~~~
+
+and the model predicts:
+
+~~~text
+Little      0.80   ← correct token
+Content     0.10
+Not         0.07
+Other       0.03
+~~~
+
+For the loss, the most important value is:
 
 $$
-\mathcal{L}_{\mathrm{example}} = -
-\frac{1}{T}
+P_\theta
+\left(
+\text{Little}\mid c_t
+\right)
+=
+0.8
+$$
+
+In simple terms:
+
+> We ask how much probability the model assigned to the token that was actually correct.
+
+If the correct token gets high probability, the prediction is good.
+
+If it gets very low probability, the prediction is poor.
+
+---
+
+### Step 5 — Convert the correct-token probability into a loss
+
+The token-level loss is:
+
+$$
+\boxed{
+\mathcal{L}_t
+=
+-\log
+P_\theta
+\left(
+y_t\mid c_t
+\right)
+}
+$$
+
+where $y_t$ is the correct target token.
+
+#### Good prediction
+
+Suppose:
+
+$$
+P_\theta
+\left(
+y_t\mid c_t
+\right)
+=
+0.8
+$$
+
+Then:
+
+$$
+\mathcal{L}_t
+=
+-\log(0.8)
+\approx
+0.223
+$$
+
+The loss is small.
+
+#### Bad prediction
+
+Suppose:
+
+$$
+P_\theta
+\left(
+y_t\mid c_t
+\right)
+=
+0.1
+$$
+
+Then:
+
+$$
+\mathcal{L}_t
+=
+-\log(0.1)
+\approx
+2.303
+$$
+
+The loss is much larger.
+
+So:
+
+~~~text
+High probability on the correct token
+        ↓
+Small loss
+
+Low probability on the correct token
+        ↓
+Large loss
+~~~
+
+---
+
+### Step 6 — Why do we use the negative logarithm?
+
+The negative log gives us a useful penalty curve.
+
+| Probability assigned to the correct token | Loss |
+|---:|---:|
+| $0.99$ | $\approx 0.01$ |
+| $0.80$ | $\approx 0.22$ |
+| $0.50$ | $\approx 0.69$ |
+| $0.10$ | $\approx 2.30$ |
+| $0.01$ | $\approx 4.61$ |
+
+So when:
+
+$$
+P_\theta
+\left(
+y_t\mid c_t
+\right)
+\rightarrow 1
+$$
+
+the loss approaches:
+
+$$
+0
+$$
+
+But when:
+
+$$
+P_\theta
+\left(
+y_t\mid c_t
+\right)
+\rightarrow 0
+$$
+
+the loss becomes very large.
+
+A simple interview explanation is:
+
+> **We use negative log probability because correct high-confidence predictions get a small loss, while low probability on the correct token gets a large penalty.**
+
+---
+
+# Now Apply It to the Qwen Little Content Example
+
+Suppose the correct response is:
+
+~~~text
+Little Content
+~~~
+
+and assume:
+
+~~~text
+y1 = Little
+y2 = Content
+y3 = EOS
+~~~
+
+Teacher forcing tells us what context each prediction uses.
+
+Cross-entropy tells us how wrong each prediction was.
+
+### Prediction 1 — Little
+
+Context:
+
+~~~text
+Screenshot + instruction
+~~~
+
+Correct next token:
+
+~~~text
+Little
+~~~
+
+Suppose:
+
+$$
+P_\theta
+\left(
+\text{Little}\mid x
+\right)
+=
+0.8
+$$
+
+Then:
+
+$$
+\mathcal{L}_1
+=
+-\log(0.8)
+\approx
+0.223
+$$
+
+### Prediction 2 — Content
+
+Because we are using teacher forcing, the context contains the **correct** previous token:
+
+~~~text
+Screenshot + instruction + TRUE Little
+~~~
+
+Suppose:
+
+$$
+P_\theta
+\left(
+\text{Content}
+\mid
+x,\text{Little}
+\right)
+=
+0.6
+$$
+
+Then:
+
+$$
+\mathcal{L}_2
+=
+-\log(0.6)
+\approx
+0.511
+$$
+
+### Prediction 3 — EOS
+
+Now the context contains:
+
+~~~text
+Screenshot + instruction + TRUE Little + TRUE Content
+~~~
+
+Suppose:
+
+$$
+P_\theta
+\left(
+\text{EOS}
+\mid
+x,\text{Little},\text{Content}
+\right)
+=
+0.9
+$$
+
+Then:
+
+$$
+\mathcal{L}_3
+=
+-\log(0.9)
+\approx
+0.105
+$$
+
+---
+
+### Step 7 — How do we get one loss for the whole response?
+
+We now have three token losses:
+
+$$
+\mathcal{L}_1
+\approx
+0.223
+$$
+
+$$
+\mathcal{L}_2
+\approx
+0.511
+$$
+
+$$
+\mathcal{L}_3
+\approx
+0.105
+$$
+
+For $T$ supervised assistant tokens, a common example-level objective is the mean token loss:
+
+$$
+\boxed{
+\mathcal{L}_{\mathrm{example}}
+=
+-\frac{1}{T}
 \sum_{t=1}^{T}
 \log
 P_\theta
 \left(
 y_t\mid c_t
 \right)
+}
 $$
 
-### Numerical intuition
-
-If the correct token gets probability:
+For this example:
 
 $$
-0.8
+\mathcal{L}_{\mathrm{example}}
+=
+\frac{
+0.223+0.511+0.105
+}{3}
 $$
 
-then:
+so:
 
 $$
--\log(0.8)
+\mathcal{L}_{\mathrm{example}}
 \approx
-0.223
+0.280
 $$
 
-If it gets only:
+Now we have **one scalar number** that represents how well the model predicted this assistant response.
+
+---
+
+### Step 8 — Why do we need one scalar loss?
+
+Training needs an objective that can be minimized.
+
+The model may produce millions of logits, but the optimizer needs a scalar objective:
 
 $$
-0.1
+\mathcal{L}
 $$
 
-then:
+Then backpropagation computes gradients such as:
 
 $$
--\log(0.1)
+\nabla_\theta
+\mathcal{L}
+$$
+
+or, in our PEFT setup, with respect to trainable adapter parameters:
+
+$$
+\nabla_\phi
+\mathcal{L}
+$$
+
+Those gradients tell the optimizer how the trainable parameters should change to reduce the loss.
+
+The complete flow is:
+
+~~~text
+Context
+        ↓
+Qwen
+        ↓
+Vocabulary logits
+        ↓
+Softmax
+        ↓
+Vocabulary probabilities
+        ↓
+Probability of the correct token
+        ↓
+Negative log
+        ↓
+Token loss
+        ↓
+Average over supervised assistant tokens
+        ↓
+One scalar loss
+        ↓
+Backpropagation
+        ↓
+Update trainable parameters
+~~~
+
+---
+
+### Step 9 — What does training actually improve?
+
+Suppose before training:
+
+$$
+P_\theta
+\left(
+\text{Little}\mid x
+\right)
+=
+0.20
+$$
+
+Then:
+
+$$
+-\log(0.20)
 \approx
-2.303
+1.609
 $$
 
-So confident correct predictions produce small loss, while low probability on the correct token produces much larger loss.
+After some training, suppose:
+
+$$
+P_\theta
+\left(
+\text{Little}\mid x
+\right)
+=
+0.70
+$$
+
+Then:
+
+$$
+-\log(0.70)
+\approx
+0.357
+$$
+
+The loss has gone down.
+
+That means the model has learned to assign more probability to the correct token for that kind of context.
+
+---
+
+### Step 10 — Cross-entropy and negative log-likelihood
+
+An interviewer may ask:
+
+> Are cross-entropy and negative log-likelihood the same thing here?
+
+For standard next-token training, the target token can be represented as a one-hot distribution.
+
+Suppose the toy vocabulary is:
+
+~~~text
+Little   Content   Not   Other
+~~~
+
+and the correct token is Little.
+
+Then the target distribution is:
+
+~~~text
+Little   Content   Not   Other
+
+1        0         0     0
+~~~
+
+The general cross-entropy is:
+
+$$
+\mathcal{L}
+=
+-
+\sum_{k=1}^{V}
+q_k
+\log
+p_k
+$$
+
+where:
+
+- $q_k$ = target probability for token $k$.
+- $p_k$ = model-predicted probability for token $k$.
+
+Because only the correct token has:
+
+$$
+q_k=1
+$$
+
+all the other terms become zero.
+
+Therefore:
+
+$$
+\mathcal{L}
+=
+-\log
+p_{\mathrm{correct}}
+$$
+
+That is exactly the negative log-likelihood of the correct token.
+
+So for standard next-token SFT, **cross-entropy loss** and **negative log-likelihood of the correct token** describe the same token-level objective.
+
+---
+
+### Step 11 — Are we directly penalizing every wrong token?
+
+Not separately.
+
+The loss mainly asks:
+
+> **How much probability did the correct token receive?**
+
+For example:
+
+~~~text
+Before training:
+
+Little                     0.20
+all other tokens together  0.80
+~~~
+
+After training:
+
+~~~text
+Little                     0.75
+all other tokens together  0.25
+~~~
+
+Because softmax probabilities must sum to 1, increasing probability on the correct token naturally reduces the total probability available to other tokens.
+
+---
+
+### Step 12 — Connection to teacher forcing
+
+Question 5 and Question 6 fit together directly.
+
+Teacher forcing answers:
+
+> **What context should the model use while predicting token $y_t$?**
+
+Cross-entropy answers:
+
+> **Given that context, how wrong was the model's prediction for $y_t$?**
+
+For our project:
+
+~~~text
+Screenshot + instruction
+        ↓
+Teacher-forced context
+        ↓
+Qwen predicts vocabulary probabilities
+        ↓
+Correct token = Little
+        ↓
+Loss = negative log probability of Little
+
+
+Screenshot + instruction + TRUE Little
+        ↓
+Teacher-forced context
+        ↓
+Qwen predicts vocabulary probabilities
+        ↓
+Correct token = Content
+        ↓
+Loss = negative log probability of Content
+~~~
+
+So:
+
+~~~text
+Teacher forcing
+        ↓
+Correct context
+        ↓
+Next-token probability distribution
+        ↓
+Cross-entropy loss
+        ↓
+Backpropagation
+        ↓
+Parameter update
+~~~
+
+---
+
+### Interview Explanation
+
+A simple interview explanation is:
+
+> **In generative SFT, the model produces a score, called a logit, for every token in the vocabulary at each supervised position. Softmax converts those logits into probabilities. We then look at the probability assigned to the correct next token. The token loss is the negative log of that probability. So if the correct token gets high probability, the loss is small; if it gets low probability, the loss is large. For a response with multiple supervised tokens, we calculate this loss for every assistant token and usually average them. That gives us one scalar loss, and backpropagation uses that loss to update the trainable parameters. In the Qwen example, for the answer "Little Content", we calculate the loss for predicting "Little", then the loss for predicting "Content" given the correct previous token "Little", and then the loss for EOS if EOS is supervised.**
+
+If the interviewer asks:
+
+> **Why negative log?**
+
+A simple answer is:
+
+> **Because it gives almost zero loss when the correct token has probability close to 1, and a large penalty when the correct token has very low probability.**
+
+---
 
 ### Qwen Project Application
 
-The loss pushes Qwen to assign more probability to the correct Little Content class response given the screenshot and instruction.
+For the Little Content project:
+
+~~~text
+SERP screenshot + instruction
+        ↓
+Qwen vocabulary logits
+        ↓
+Softmax probabilities
+        ↓
+Probability of correct class-response token
+        ↓
+Token cross-entropy
+        ↓
+Average over supervised assistant tokens
+        ↓
+Backpropagation
+        ↓
+Update LoRA / other trainable parameters
+~~~
+
+The loss therefore pushes Qwen to assign more probability to the correct canonical Little Content response for screenshots with similar visual evidence.
 
 ### Design Decision
 
-The primary SFT objective is **token-level negative log-likelihood / cross-entropy over the assistant response**.
+The primary SFT objective is:
+
+> **Assistant-token cross-entropy / negative log-likelihood.**
+
+For $T$ supervised assistant tokens:
+
+$$
+\boxed{
+\mathcal{L}_{\mathrm{SFT}}
+=
+-\frac{1}{T}
+\sum_{t=1}^{T}
+\log
+P_\theta
+\left(
+y_t\mid c_t
+\right)
+}
+$$
+
+Assistant-only loss masking, discussed in Question 7, determines **which token positions are included in this average**.
 
 ---
 
