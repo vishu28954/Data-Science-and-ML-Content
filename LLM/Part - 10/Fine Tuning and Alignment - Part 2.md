@@ -1643,3 +1643,491 @@ This makes it possible to create a relatively small task-specific adapter while 
 ### Design Decision
 
 The final project will report the actual number and percentage of trainable parameters rather than merely saying "we used LoRA."
+
+
+---
+
+### Story Bridge 17 — LoRA Still Has Hyperparameters That Control Capacity and Update Strength
+
+Saying "use LoRA" is not a complete design.
+
+LoRA rank, scaling, and regularization determine how much task-specific capacity the adapter has and how strongly its update influences the frozen base model.
+
+## Question 17 — What do LoRA rank, alpha, scaling, and dropout control?
+
+### Rank
+
+The rank is:
+
+$$
+r
+$$
+
+and controls the dimension of the low-rank update.
+
+A larger rank gives:
+
+- More trainable parameters.
+- More adaptation capacity.
+- More optimizer memory.
+- Potentially greater overfitting risk.
+
+A smaller rank gives:
+
+- Fewer trainable parameters.
+- Lower memory.
+- Stronger capacity constraint.
+
+### Alpha
+
+A common LoRA scaling factor is:
+
+$$
+\frac{\alpha}{r}
+$$
+
+so the effective update is:
+
+$$
+\Delta W_{\mathrm{effective}}
+=
+\frac{\alpha}{r}BA
+$$
+
+Alpha controls the relative magnitude of the adapter contribution.
+
+### LoRA dropout
+
+A dropout operation can be applied on the LoRA path during training.
+
+Conceptually:
+
+~~~text
+Input
+   ↓
+LoRA dropout
+   ↓
+A
+   ↓
+B
+   ↓
+Scaled adapter update
+~~~
+
+It can regularize the adapter, especially on smaller datasets.
+
+### Initialization
+
+A common design initializes the factors so that:
+
+$$
+BA
+=
+0
+$$
+
+at initialization.
+
+Then:
+
+$$
+W
+=
+W_0
+$$
+
+at the start of training.
+
+This lets the model begin from the pretrained behavior before the adapter learns a task-specific correction.
+
+### Qwen Project Application
+
+We should not choose:
+
+~~~text
+rank = 8
+alpha = 16
+dropout = 0.05
+~~~
+
+simply because those values are common online.
+
+The appropriate values depend on:
+
+- Model size.
+- Dataset size.
+- Adapted modules.
+- Memory budget.
+- Validation behavior.
+
+### Design Decision
+
+Part 2 defines the role of these hyperparameters.
+
+The exact search values will be fixed in **Part 6**, where we design the complete training recipe.
+
+---
+
+### Story Bridge 18 — LoRA Has to Be Attached to Specific Matrices
+
+A Transformer contains many linear transformations.
+
+The adapter does not automatically know where to go.
+
+So target-module selection is itself a model-capacity decision.
+
+## Question 18 — Which Transformer matrices can receive LoRA adapters?
+
+Self-attention commonly contains projection matrices:
+
+$$
+W_Q,\;
+W_K,\;
+W_V,\;
+W_O
+$$
+
+corresponding to:
+
+- Query.
+- Key.
+- Value.
+- Attention output.
+
+The feed-forward block also contains large linear transformations.
+
+### Strategy A — Minimal attention adaptation
+
+~~~text
+Q projection
+V projection
+~~~
+
+This is a relatively parameter-efficient starting point.
+
+### Strategy B — Broader attention adaptation
+
+~~~text
+Q
+K
+V
+O
+~~~
+
+This increases adaptation capacity.
+
+### Strategy C — Attention + MLP adaptation
+
+Adapters are placed on:
+
+- Attention projections.
+- Feed-forward linear layers.
+
+This gives still more capacity.
+
+### Tradeoff
+
+~~~text
+More target modules
+        ↓
+More trainable parameters
+        ↓
+More adaptation capacity
+        ↓
+More memory
++
+potentially greater overfitting risk
+~~~
+
+### Qwen Project Application
+
+The exact module names differ across Qwen variants and software implementations.
+
+For example, generic names such as:
+
+~~~text
+q_proj
+k_proj
+v_proj
+o_proj
+~~~
+
+should never be assumed without inspecting the selected model.
+
+### Design Decision
+
+Our **initial theoretical language-side LoRA baseline** will target:
+
+> **Query and Value attention projections.**
+
+If validation suggests under-capacity, we expand the target set systematically rather than immediately adapting every linear layer.
+
+---
+
+### Story Bridge 19 — A Vision-Language Model Has More Adaptation Choices Than a Text-Only LLM
+
+Qwen receives the screenshot through a visual pathway before the language model makes the class decision.
+
+That means we need to decide whether to adapt:
+
+- Vision encoder.
+- Multimodal connector.
+- Language backbone.
+- Some combination of them.
+
+## Question 19 — Which VLM components should we freeze or adapt?
+
+A simplified multimodal architecture is:
+
+~~~text
+Vision encoder
+        ↓
+Multimodal projector / connector
+        ↓
+Language model
+~~~
+
+There are several reasonable strategies.
+
+### Strategy A — Freeze vision, adapt language only
+
+Advantages:
+
+- Very parameter-efficient.
+- Preserves general visual representation.
+- Good first test if pretrained visual features are already sufficient.
+
+Risk:
+
+- May not adapt enough to SERP-specific layout patterns.
+
+### Strategy B — Freeze vision, train connector + language LoRA
+
+Advantages:
+
+- The connector can learn a more task-relevant mapping from visual features into language space.
+- Much cheaper than full VLM fine-tuning.
+- Preserves most pretrained visual capability.
+
+### Strategy C — Add PEFT to upper vision layers
+
+Advantages:
+
+- Gives the visual representation some domain-specific flexibility.
+
+Risks:
+
+- More trainable parameters.
+- More training complexity.
+- Higher overfitting risk.
+
+### Strategy D — Full multimodal fine-tuning
+
+Advantages:
+
+- Maximum adaptation capacity.
+
+Risks:
+
+- Highest memory and compute cost.
+- Highest risk of over-specialization on a narrow dataset.
+
+### Qwen Project Application
+
+The task depends strongly on visual layout and content density.
+
+Therefore, it would be risky to treat the screenshot pathway as irrelevant.
+
+At the same time, the base Qwen model already has broad visual capability.
+
+### Design Decision
+
+Our initial theoretical configuration is:
+
+~~~text
+Vision encoder
+Frozen initially
+
+Multimodal connector / projector
+Trainable if exposed separately
+
+Language backbone
+Frozen
+
+Language attention
+LoRA on Q and V projections
+~~~
+
+If validation shows systematic failure on visual-layout distinctions, we will test PEFT on upper vision layers.
+
+---
+
+### Story Bridge 20 — A Good Initial Adapter Placement Is a Hypothesis, Not a Truth
+
+The previous configuration is intentionally a starting point.
+
+A mature design should prove that additional adaptation capacity is useful before paying for it.
+
+That calls for ablation experiments.
+
+## Question 20 — How would we decide whether the initial LoRA placement is sufficient?
+
+We can compare controlled variants while keeping the data and evaluation protocol fixed.
+
+### Configuration A
+
+~~~text
+Language Q/V LoRA
+Vision frozen
+Connector trainable
+~~~
+
+### Configuration B
+
+~~~text
+Language Q/K/V/O LoRA
+Vision frozen
+Connector trainable
+~~~
+
+### Configuration C
+
+~~~text
+Language attention + MLP LoRA
+Vision frozen
+Connector trainable
+~~~
+
+### Configuration D
+
+~~~text
+Language LoRA
++
+upper-vision PEFT
++
+connector trainable
+~~~
+
+Compare:
+
+- Validation precision.
+- Validation recall.
+- F1.
+- Performance on unseen-host slices.
+- Performance on hard visual-layout cases.
+- Trainable parameter count.
+- Peak training memory.
+- Training time.
+
+### How to interpret the result
+
+If:
+
+$$
+\text{Performance}(A)
+\approx
+\text{Performance}(C)
+$$
+
+but A uses far fewer trainable parameters, A is preferable.
+
+If A systematically fails on layout-specific examples and D fixes those failures without harming generalization, visual adaptation becomes justified.
+
+### Qwen Project Application
+
+This gives us a defensible interview answer:
+
+> We started with the smallest plausible PEFT configuration and expanded capacity only when validation error analysis showed a need.
+
+### Design Decision
+
+Adapter placement will be selected through **ablation**, not habit.
+
+---
+
+### Story Bridge 21 — Fewer Trainable Parameters Do Not Mean the Whole Model Disappears During Training
+
+LoRA can reduce trainable state dramatically.
+
+But every training example still passes through the frozen base network.
+
+So we need to understand what PEFT saves and what it does not.
+
+## Question 21 — How does PEFT change training memory and compute?
+
+With full fine-tuning, conceptually:
+
+~~~text
+Base weights
++
+gradients for base weights
++
+optimizer states for base weights
++
+activations
+~~~
+
+With LoRA PEFT:
+
+~~~text
+Frozen base weights
++
+LoRA gradients
++
+optimizer states for LoRA
++
+activations
+~~~
+
+Let:
+
+$$
+P
+$$
+
+be total base-model parameters and:
+
+$$
+p
+$$
+
+be trainable adapter parameters with:
+
+$$
+p\ll P
+$$
+
+Then gradient and optimizer-state storage associated with trainable parameters can shrink dramatically.
+
+### But forward compute remains
+
+The frozen model still performs:
+
+- Attention.
+- MLP computation.
+- Vision processing.
+- Multimodal fusion.
+
+The base network is needed to compute the hidden states that the adapters modify.
+
+### Important consequence
+
+If only 1% of parameters are trainable, it does **not** mean training becomes 100 times faster.
+
+The biggest PEFT savings are often:
+
+- Optimizer memory.
+- Gradient memory.
+- Checkpoint size.
+
+Compute savings can be much smaller than parameter-count savings.
+
+### Qwen Project Application
+
+LoRA makes adaptation practical without pretending that the underlying Qwen VLM is computationally tiny.
+
+### Design Decision
+
+When discussing LoRA, we will describe it as:
+
+> **Parameter-efficient and optimizer-memory-efficient**, not computationally free.
