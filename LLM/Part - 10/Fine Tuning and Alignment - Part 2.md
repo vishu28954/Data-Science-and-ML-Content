@@ -2131,3 +2131,723 @@ LoRA makes adaptation practical without pretending that the underlying Qwen VLM 
 When discussing LoRA, we will describe it as:
 
 > **Parameter-efficient and optimizer-memory-efficient**, not computationally free.
+
+
+---
+
+### Story Bridge 22 — If the Frozen Base Model Is Still Too Large, We Can Compress the Base and Keep the Adapters Trainable
+
+LoRA removes the need to optimize all base-model parameters.
+
+But the frozen base weights still need to reside in memory.
+
+If that memory requirement becomes the bottleneck, quantization can be combined with LoRA.
+
+## Question 22 — What is QLoRA, and when would we use it?
+
+QLoRA combines:
+
+1. A quantized frozen base model.
+2. Trainable LoRA adapters.
+
+Conceptually:
+
+~~~text
+Base model weights
+stored in quantized form
+        ↓
+Frozen
+
+LoRA adapters
+stored and trained at higher precision
+        ↓
+Updated during SFT
+~~~
+
+The goal is to reduce the memory required to hold the base model while retaining task-specific trainable adapters.
+
+### Why this is different from ordinary LoRA
+
+With ordinary LoRA:
+
+~~~text
+Base model
+full training precision / normal inference precision
++
+LoRA adapters
+~~~
+
+With QLoRA:
+
+~~~text
+Base model
+quantized
++
+LoRA adapters
+trainable
+~~~
+
+### Important implementation details
+
+Actual QLoRA behavior depends on:
+
+- Quantization format.
+- Compute dtype.
+- Hardware support.
+- Software stack.
+- VLM implementation support.
+- Which modules are quantized.
+
+So QLoRA is not a purely mathematical replacement for LoRA; it is also an engineering choice.
+
+### Qwen Project Application
+
+If the selected Qwen VLM cannot fit comfortably for ordinary LoRA training on available hardware, QLoRA becomes an attractive option.
+
+### Design Decision
+
+Our preferred decision hierarchy is:
+
+~~~text
+LoRA
+        ↓
+If base-model memory is limiting:
+QLoRA
+        ↓
+If PEFT underfits despite good data:
+broader PEFT
+        ↓
+Full fine-tuning only if justified
+~~~
+
+QLoRA is primarily a **memory-efficiency strategy**, not automatically a better-performing training method.
+
+---
+
+### Story Bridge 23 — We Have All the Pieces; Now Follow One Example Through a Complete Training Step
+
+At this point we understand:
+
+- The input.
+- The target.
+- Teacher forcing.
+- Token cross-entropy.
+- Loss masking.
+- Frozen versus trainable parameters.
+- LoRA.
+
+The best way to consolidate this is to follow one example from screenshot to optimizer update.
+
+## Question 23 — What happens in one Qwen SFT training step?
+
+Consider one labelled example.
+
+### Step 1 — Load the screenshot
+
+~~~text
+SERP screenshot
+~~~
+
+### Step 2 — Apply the model's image processor
+
+The exact processor depends on the selected Qwen variant.
+
+It may perform operations such as:
+
+- Resize.
+- Normalize.
+- Convert to tensor.
+- Create model-specific image metadata.
+
+We defer exact preprocessing details to Part 3.
+
+### Step 3 — Construct the multimodal conversation
+
+Conceptually:
+
+~~~text
+SYSTEM
+You are a page-quality classifier.
+
+USER
+<image>
+Classify the screenshot.
+
+ASSISTANT
+little_content
+~~~
+
+### Step 4 — Tokenize the textual portions
+
+The system, user, and assistant text are converted into token IDs.
+
+The image is represented through the model's visual pathway.
+
+### Step 5 — Build attention and supervision masks
+
+Context tokens:
+
+~~~text
+attention = active
+loss = masked
+~~~
+
+Assistant target tokens:
+
+~~~text
+attention = active
+loss = active
+~~~
+
+Padding:
+
+~~~text
+attention = inactive
+loss = masked
+~~~
+
+### Step 6 — Forward pass
+
+The model produces vocabulary logits:
+
+$$
+z_t
+\in
+\mathbb{R}^{V}
+$$
+
+for each relevant causal prediction position.
+
+### Step 7 — Compute assistant-only cross-entropy
+
+$$
+\mathcal{L}
+=
+-
+\frac{
+\sum_t
+m_t
+\log
+P_\theta
+\left(
+y_t\mid c_t
+\right)
+}{
+\sum_t m_t
+}
+$$
+
+### Step 8 — Backpropagate
+
+The gradient flows through the computation graph.
+
+Frozen base parameters do not receive optimizer updates.
+
+Trainable LoRA parameters and selected connector parameters do.
+
+### Step 9 — Optimizer update
+
+For trainable parameter set $\phi$:
+
+$$
+\phi_{k+1}
+=
+\phi_k
+-
+\eta
+\widehat{g}_k
+$$
+
+where $\widehat{g}_k$ represents the optimizer-adjusted gradient.
+
+### Step 10 — Repeat over batches
+
+Across many labelled screenshots, the model gradually assigns more probability to the correct canonical class response.
+
+### Qwen Project Application
+
+This is the first complete theoretical training loop for the resume project.
+
+### Design Decision
+
+This SFT loop becomes the backbone of the final Qwen project file.
+
+---
+
+### Story Bridge 24 — Real Training Uses Batches, So Padding and Supervision Need Different Masks
+
+Examples do not all have the same text length.
+
+Images may also require model-specific batching behavior.
+
+That means batching introduces multiple masking concepts that should not be confused.
+
+## Question 24 — What is the difference between attention masking and loss masking?
+
+These masks solve different problems.
+
+### Attention mask
+
+The attention mask identifies valid sequence positions rather than padding.
+
+Conceptually:
+
+$$
+a_t
+=
+\begin{cases}
+1 & \text{real token}\\
+0 & \text{padding token}
+\end{cases}
+$$
+
+Causal masking separately prevents access to future positions.
+
+### Loss mask
+
+The loss mask identifies which valid tokens should contribute to the supervised objective:
+
+$$
+m_t
+=
+\begin{cases}
+1 & \text{assistant target token}\\
+0 & \text{context or padding}
+\end{cases}
+$$
+
+Therefore a user prompt token may have:
+
+~~~text
+attention mask = 1
+loss mask = 0
+~~~
+
+because the model must read the prompt but should not be directly trained to reproduce it.
+
+Padding may have:
+
+~~~text
+attention mask = 0
+loss mask = 0
+~~~
+
+### Qwen Project Application
+
+This distinction becomes important when we build the Qwen data collator in Part 3.
+
+### Design Decision
+
+The training pipeline will explicitly maintain:
+
+> **attention validity** and **assistant supervision** as separate masks.
+
+---
+
+### Story Bridge 25 — Part 2 Should End With a Concrete Fine-Tuning Design, Not a List of LoRA Definitions
+
+Part 1 told us why fine-tuning was needed.
+
+Part 2 has now told us how the supervision signal is constructed and where the trainable capacity lives.
+
+We should finish by reconstructing the whole training design in one flow.
+
+## Question 25 — What is the Qwen fine-tuning design after Part 2?
+
+The theoretical training pipeline is now:
+
+~~~text
+Labelled SERP screenshot
+        ↓
+Qwen multimodal processor
+        ↓
+Screenshot representation
++
+task instruction
+        ↓
+Pretrained Qwen VLM
+        ↓
+Teacher-forced causal SFT
+        ↓
+Assistant-only token loss
+        ↓
+Cross-entropy / negative log-likelihood
+        ↓
+Backpropagation
+        ↓
+Frozen base weights
+
+Trainable:
+LoRA adapters
++
+multimodal connector if separable
+        ↓
+Task-specific update
+        ↓
+Higher probability for the
+correct Little Content label
+~~~
+
+### Primary adaptation strategy
+
+~~~text
+Vision encoder
+Frozen initially
+
+Multimodal connector / projector
+Trainable if exposed separately
+
+Language backbone
+Frozen
+
+Language attention
+LoRA on Q and V projections
+~~~
+
+### Expansion strategy
+
+If the starting setup underfits:
+
+~~~text
+Q/V LoRA
+    ↓
+Q/K/V/O LoRA
+    ↓
+Attention + MLP LoRA
+    ↓
+Upper-vision PEFT
+    ↓
+Full fine-tuning only if justified
+~~~
+
+### Production classification interface
+
+The model remains generative.
+
+The downstream decision layer can compare the likelihoods of the two canonical class responses rather than rely on unconstrained free-form generation.
+
+### What remains intentionally unresolved
+
+- Exact Qwen variant.
+- Exact image processor.
+- Exact chat template.
+- Exact canonical label strings.
+- LoRA rank.
+- LoRA alpha.
+- LoRA dropout.
+- Batch size.
+- Gradient accumulation.
+- Learning rate.
+- Optimizer.
+- Scheduler.
+- Number of epochs.
+- Dataset split.
+- Class balancing.
+- Threshold.
+- Calibration.
+- Deployment configuration.
+
+These belong to later parts rather than being guessed prematurely.
+
+---
+
+# Qwen Project Build Record — After Part 2
+
+| Design element | Current state | Type |
+|---|---|---|
+| Business problem | Little Content detection | Resume Fact |
+| Model family | Qwen Vision-Language Model | Resume Fact |
+| Data modality | Labelled Bing SERP screenshots | Resume Fact |
+| Production scale | About 50K URLs/day | Resume Fact |
+| Core training paradigm | Generative Supervised Fine-Tuning | Design Decision |
+| SFT context | Screenshot + task instruction | Design Decision |
+| SFT target | Canonical Little Content class response | Design Decision |
+| Training objective | Causal token-level negative log-likelihood | Design Decision |
+| Teacher forcing | Used during SFT | Design Decision |
+| Loss scope | Assistant target tokens only | Design Decision |
+| Prompt tokens | Used as context; masked from direct loss | Design Decision |
+| Image | Conditions the answer; not treated as a text target | Design Decision |
+| Primary output formulation | Generative class label | Design Decision |
+| Production class scoring | Compare canonical label likelihoods | Design Decision |
+| Full fine-tuning | Not the default starting strategy | Design Decision |
+| Preferred adaptation family | PEFT | Design Decision |
+| Primary PEFT method | LoRA | Design Decision |
+| Initial vision encoder | Frozen | Design Decision |
+| Multimodal connector | Trainable if separable in chosen architecture | Design Decision |
+| Language base weights | Frozen | Design Decision |
+| Initial LoRA targets | Language attention Q and V projections | Design Decision |
+| Expansion path | Q/K/V/O → MLP → upper-vision PEFT if validation requires | Design Decision |
+| Adapter selection method | Controlled ablation | Design Decision |
+| QLoRA | Memory-constrained alternative | Design Decision |
+| Exact Qwen variant | Not established | Open Question |
+| Exact target strings | Deferred to Part 3 | Open Question |
+| Exact chat template | Deferred to Part 3 | Open Question |
+| Exact image preprocessing | Deferred to Part 3 | Open Question |
+| LoRA rank / alpha / dropout | Deferred to Part 6 | Open Question |
+| Optimizer / LR / scheduler | Deferred to Part 6 | Open Question |
+| Dataset split / leakage controls | Deferred to Part 7 | Open Question |
+| Threshold / calibration | Deferred to Part 8 | Open Question |
+| Deployment architecture | Deferred to Part 8 | Open Question |
+
+---
+
+# Part 2 — Key Equations
+
+## SFT dataset
+
+$$
+\mathcal{D}_{\mathrm{SFT}}
+=
+\{
+(x_i,y_i)
+\}_{i=1}^{N}
+$$
+
+## Conditional response probability
+
+$$
+P_\theta(y_i\mid x_i)
+=
+\prod_{t=1}^{T_i}
+P_\theta
+\left(
+y_{i,t}
+\mid
+x_i,
+y_{i,<t}
+\right)
+$$
+
+## SFT negative log-likelihood
+
+$$
+\mathcal{L}_{\mathrm{SFT}}
+=
+-
+\sum_{i=1}^{N}
+\sum_{t=1}^{T_i}
+\log
+P_\theta
+\left(
+y_{i,t}
+\mid
+x_i,
+y_{i,<t}
+\right)
+$$
+
+## Softmax
+
+$$
+P_\theta(k\mid c_t)
+=
+\frac{
+e^{z_{t,k}}
+}{
+\sum_{j=1}^{V}e^{z_{t,j}}
+}
+$$
+
+## Token cross-entropy
+
+$$
+\mathcal{L}_t
+=
+-
+\log
+P_\theta
+\left(
+y_t\mid c_t
+\right)
+$$
+
+## Assistant-only masked loss
+
+$$
+\mathcal{L}
+=
+-
+\frac{
+\sum_t
+m_t
+\log
+P_\theta
+\left(
+y_t\mid c_t
+\right)
+}{
+\sum_t m_t
+}
+$$
+
+## PEFT objective
+
+$$
+\phi^*
+=
+\underset{\phi}{\operatorname{argmin}}
+\;
+\mathcal{L}
+\left(
+\theta_0,\phi
+\right)
+$$
+
+## LoRA update
+
+$$
+\Delta W
+=
+BA
+$$
+
+## Scaled LoRA layer
+
+$$
+h
+=
+W_0x
++
+\frac{\alpha}{r}
+BAx
+$$
+
+## LoRA parameter count
+
+$$
+N_{\mathrm{LoRA}}
+=
+r
+\left(
+d_{\mathrm{in}}
++
+d_{\mathrm{out}}
+\right)
+$$
+
+## Approximate training-memory decomposition
+
+$$
+M_{\mathrm{train}}
+\approx
+M_{\mathrm{weights}}
++
+M_{\mathrm{gradients}}
++
+M_{\mathrm{optimizer}}
++
+M_{\mathrm{activations}}
++
+M_{\mathrm{runtime}}
+$$
+
+## Generative class score
+
+$$
+s(x)
+=
+\log
+P_\theta
+\left(
+y^{(+)}
+\mid x
+\right)
+-
+\log
+P_\theta
+\left(
+y^{(-)}
+\mid x
+\right)
+$$
+
+---
+
+# Part 2 — Final Mental Model
+
+~~~text
+LABELLED EXAMPLE
+Screenshot
++
+Instruction
++
+Correct response
+        ↓
+
+QWEN MULTIMODAL FORWARD PASS
+Vision features
++
+Text context
+        ↓
+
+TEACHER FORCING
+Ground-truth response history is known
+        ↓
+
+TOKEN LOGITS
+        ↓
+
+ASSISTANT-ONLY CROSS-ENTROPY
+Prompt conditions the answer
+but does not receive direct target loss
+        ↓
+
+BACKPROPAGATION
+        ↓
+
+FROZEN BASE MODEL
++
+TRAINABLE LoRA ADAPTERS
++
+TRAINABLE CONNECTOR
+        ↓
+
+TASK-SPECIFIC UPDATE
+        ↓
+
+MODEL BECOMES MORE LIKELY TO PRODUCE
+THE CORRECT LITTLE CONTENT LABEL
+~~~
+
+The central distinction is:
+
+> **SFT defines the training signal; PEFT defines which parameters are allowed to respond to that signal.**
+
+---
+
+# Bridge to Part 3
+
+Part 2 answered:
+
+> **How do labelled examples produce gradients, and which parameters should we adapt?**
+
+Part 3 will study:
+
+- **10.3 Instruction Tuning**
+- **10.4 Chat Format Training**
+
+That is where the example becomes fully concrete:
+
+~~~text
+SERP screenshot
+        ↓
+Qwen image processor
+        ↓
+System message
+        ↓
+User instruction
+        ↓
+Assistant target
+        ↓
+Chat template
+        ↓
+Tokenization
+        ↓
+Loss labels
+        ↓
+Data collator
+~~~
+
+Part 3 will answer:
+
+> **Exactly how should the Qwen Little Content examples be formatted and fed into the model?**
