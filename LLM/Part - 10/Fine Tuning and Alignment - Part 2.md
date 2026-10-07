@@ -97,9 +97,7 @@ The next question is:
 
 Part 1 ended with labelled screenshot pairs:
 
-$$
-(x_i,y_i)
-$$
+$$ (x_i, y_i) $$
 
 But a generative VLM does not consume the abstract phrase "binary classification dataset."
 
@@ -115,11 +113,9 @@ Supervised Fine-Tuning, or **SFT**, adapts a pretrained model using examples con
 A generic SFT dataset is:
 
 $$
-\mathcal{D}_{\mathrm{SFT}} =
-\{
-(x_i,y_i)
-\}_{i=1}^{N}
+\mathcal{D}_{\\mathrm{SFT}} = \\{ (x_i, y_i) \\}_{i=1}^{N}
 $$
+
 
 where:
 
