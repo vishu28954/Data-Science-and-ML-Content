@@ -3830,17 +3830,19 @@ $$
 
 ### Adam-like optimizer state
 
-Adam maintains first and second moments:
+Adam maintains first- and second-moment estimates. To avoid confusing them with the loss mask $m_t$ from Question 7, write them as:
 
 $$
-m_t
+\mu_k
 $$
 
 and:
 
 $$
-v_t
+\nu_k
 $$
+
+where $k$ is the optimizer step.
 
 If both moment tensors are stored in FP32, their combined memory is approximately:
 
@@ -4253,7 +4255,7 @@ $$
 so the effective update is:
 
 $$
-\Delta W_{\mathrm{effective}}
+\Delta W_{\mathrm{LoRA}}
 =
 \frac{\alpha}{r}BA
 $$
@@ -5188,7 +5190,10 @@ $$
 ## Conditional response probability
 
 $$
-P_\theta(y_i\mid x_i)
+P_\theta
+\left(
+y_i\mid x_i
+\right)
 =
 \prod_{t=1}^{T_i}
 P_\theta
@@ -5196,7 +5201,7 @@ P_\theta
 y_{i,t}
 \mid
 x_i,
-y_{i,<t}
+y_{i,<t}^{\mathrm{true}}
 \right)
 $$
 
@@ -5214,7 +5219,7 @@ P_\theta
 y_{i,t}
 \mid
 x_i,
-y_{i,<t}
+y_{i,<t}^{\mathrm{true}}
 \right)
 $$
 
