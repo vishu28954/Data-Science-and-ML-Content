@@ -1023,3 +1023,623 @@ $$
 $$
 
 if supported cleanly by the implementation.
+
+
+---
+
+### Story Bridge 11 — A Generative Model Still Needs a Stable Production Score
+
+Free-form generation is convenient for training, but production classification should not depend on wording variations.
+
+A more controlled approach is to compare the likelihood of the allowed class responses.
+
+## Question 11 — How can a generative model produce a classification score?
+
+Let the positive canonical label be:
+
+$$
+y^{(+)}
+$$
+
+and the negative canonical label be:
+
+$$
+y^{(-)}
+$$
+
+We can compute:
+
+$$
+S_+(x)
+=
+\log
+P_\theta
+\left(
+y^{(+)}
+\mid x
+\right)
+$$
+
+and:
+
+$$
+S_-(x)
+=
+\log
+P_\theta
+\left(
+y^{(-)}
+\mid x
+\right)
+$$
+
+A relative class score is:
+
+$$
+s(x)
+=
+S_+(x)-S_-(x)
+$$
+
+Then a thresholded decision is:
+
+$$
+\hat{y}
+=
+\mathbb{1}
+\left[
+s(x)\ge\tau
+\right]
+$$
+
+where $\tau$ is chosen using validation data.
+
+If the two canonical labels have different token lengths, one possible comparison is the length-normalized sequence score:
+
+$$
+\bar{S}(y\mid x)
+=
+\frac{1}{|y|}
+\log
+P_\theta
+\left(
+y\mid x
+\right)
+$$
+
+### Why this helps
+
+Instead of allowing unconstrained generation such as:
+
+~~~text
+This seems like a Little Content page.
+~~~
+
+the production layer can compare only the two known candidate responses.
+
+### Qwen Project Application
+
+The model can remain a generative VLM while the business decision layer behaves like a controlled classifier.
+
+### Design Decision
+
+The theoretical production design will prefer **canonical label likelihood comparison** over unrestricted text generation.
+
+The final threshold and calibration design are deferred to Part 8.
+
+---
+
+### Story Bridge 12 — SFT Defines the Loss, but It Does Not Decide Which Parameters Are Allowed to Move
+
+We now know:
+
+- What the model predicts.
+- Which positions contribute to loss.
+- How the classification score can be derived.
+
+The next major decision is whether we update the entire model or only a small trainable subset.
+
+## Question 12 — What is full fine-tuning?
+
+In full fine-tuning, most or all pretrained model parameters remain trainable.
+
+Let:
+
+$$
+\theta_0
+$$
+
+be the pretrained parameter state.
+
+We optimize the model directly:
+
+$$
+\theta_0
+\rightarrow
+\theta^*
+$$
+
+through updates such as:
+
+$$
+\theta_{k+1}
+=
+\theta_k
+-
+\eta
+\nabla_\theta
+\mathcal{L}
+$$
+
+### Advantages
+
+Full fine-tuning gives the model maximum adaptation capacity.
+
+Every trainable representation can shift toward the downstream task.
+
+This may help when:
+
+- Domain shift is large.
+- The downstream dataset is large and high quality.
+- Compute is sufficient.
+- The desired behavior differs substantially from the base model.
+
+### Costs
+
+It requires:
+
+- Gradients for many parameters.
+- Optimizer states for many parameters.
+- More checkpoint storage.
+- More training memory.
+- More expensive distributed training.
+- Greater risk of over-specializing a large model on a narrow dataset.
+
+### Qwen Project Application
+
+A full multimodal fine-tune could update:
+
+~~~text
+Vision encoder
++
+multimodal connector
++
+language backbone
+~~~
+
+That is more adaptation capacity than we may need for Little Content classification.
+
+### Design Decision
+
+Full fine-tuning is **not** our default first experiment.
+
+It remains an escalation option if PEFT clearly underfits and sufficient data/compute are available.
+
+---
+
+### Story Bridge 13 — A Model That Fits for Inference May Still Be Too Expensive to Full-Fine-Tune
+
+Inference mainly needs model weights, activations, and runtime state.
+
+Training needs additional gradient and optimizer state.
+
+So full fine-tuning can require far more memory than inference.
+
+## Question 13 — Why is full fine-tuning so memory-intensive?
+
+A simplified training-memory decomposition is:
+
+$$
+M_{\mathrm{train}}
+\approx
+M_{\mathrm{weights}}
++
+M_{\mathrm{gradients}}
++
+M_{\mathrm{optimizer}}
++
+M_{\mathrm{activations}}
++
+M_{\mathrm{runtime}}
+$$
+
+### Weight memory
+
+For $P$ parameters stored using $b_w$ bytes each:
+
+$$
+M_{\mathrm{weights}}
+\approx
+Pb_w
+$$
+
+### Gradient memory
+
+If every parameter is trainable:
+
+$$
+M_{\mathrm{gradients}}
+\propto
+P
+$$
+
+### Adam-like optimizer state
+
+Adam maintains first and second moments:
+
+$$
+m_t
+$$
+
+and:
+
+$$
+v_t
+$$
+
+If both are FP32, those two tensors require roughly:
+
+$$
+8P
+$$
+
+bytes.
+
+For a 7B-parameter model:
+
+$$
+7\times10^9\times8
+=
+56\times10^9
+$$
+
+bytes, or about 56 GB in decimal units, **only for the two FP32 moment tensors**.
+
+This estimate still excludes:
+
+- Model weights.
+- Gradients.
+- Activations.
+- Possible FP32 master weights.
+- Framework overhead.
+
+### Important qualification
+
+Modern techniques such as:
+
+- ZeRO-style sharding.
+- FSDP.
+- Offloading.
+- Lower-precision optimizer states.
+- Quantization.
+
+can change the actual memory footprint substantially.
+
+The point is the scaling behavior, not a universal fixed number.
+
+### Qwen Project Application
+
+For a narrow VLM adaptation problem, paying optimizer-state cost for every pretrained parameter may be unnecessary.
+
+### Design Decision
+
+Training-memory efficiency is one of the reasons to prefer PEFT as our starting strategy.
+
+---
+
+### Story Bridge 14 — We Want Task Adaptation Without Paying to Train the Whole Model
+
+Parameter-Efficient Fine-Tuning asks:
+
+> Can we keep the pretrained model mostly fixed and learn only a small task-specific parameter set?
+
+That is a natural match for our project goals.
+
+## Question 14 — What is Parameter-Efficient Fine-Tuning?
+
+Parameter-Efficient Fine-Tuning, or **PEFT**, keeps most pretrained parameters frozen and learns a much smaller trainable parameter set.
+
+Let:
+
+$$
+\theta_0
+=
+\text{frozen base parameters}
+$$
+
+and:
+
+$$
+\phi
+=
+\text{trainable PEFT parameters}
+$$
+
+Then the model can be represented as:
+
+$$
+f(x;\theta_0,\phi)
+$$
+
+and the optimization becomes:
+
+$$
+\phi^*
+=
+\underset{\phi}{\operatorname{argmin}}
+\;
+\mathcal{L}
+\left(
+\theta_0,\phi
+\right)
+$$
+
+while the base model is not directly updated.
+
+### What PEFT can reduce
+
+- Number of trainable parameters.
+- Gradient storage for base weights.
+- Optimizer-state memory for base weights.
+- Task-specific checkpoint size.
+
+### What PEFT does not remove
+
+The frozen base model still participates in the forward computation.
+
+So a model with only a small fraction of trainable parameters is not automatically proportionally cheaper in all forms of compute.
+
+### Qwen Project Application
+
+This aligns with our Part 1 design goal:
+
+> Preserve broad Qwen capability while learning a narrow Little Content behavior.
+
+### Design Decision
+
+PEFT is the preferred adaptation family for the initial Qwen training design.
+
+---
+
+### Story Bridge 15 — LoRA Gives PEFT a Concrete Mathematical Form
+
+Among PEFT methods, LoRA is especially attractive because it modifies the effect of a large linear layer through a small low-rank update.
+
+We now need to derive that update.
+
+## Question 15 — What is LoRA mathematically?
+
+Consider a pretrained linear transformation:
+
+$$
+h
+=
+W_0x
+$$
+
+where:
+
+$$
+W_0
+\in
+\mathbb{R}^{d_{\mathrm{out}}\times d_{\mathrm{in}}}
+$$
+
+Full fine-tuning would directly update:
+
+$$
+W_0
+$$
+
+LoRA freezes $W_0$ and writes the task-specific update as:
+
+$$
+\Delta W
+=
+BA
+$$
+
+where:
+
+$$
+A
+\in
+\mathbb{R}^{r\times d_{\mathrm{in}}}
+$$
+
+and:
+
+$$
+B
+\in
+\mathbb{R}^{d_{\mathrm{out}}\times r}
+$$
+
+with:
+
+$$
+r
+\ll
+\min
+\left(
+d_{\mathrm{in}},
+d_{\mathrm{out}}
+\right)
+$$
+
+The effective transformation becomes:
+
+$$
+W
+=
+W_0+\Delta W
+$$
+
+and:
+
+$$
+h
+=
+W_0x
++
+BAx
+$$
+
+A commonly used scaled form is:
+
+$$
+h
+=
+W_0x
++
+\frac{\alpha}{r}
+BAx
+$$
+
+where:
+
+- $r$ is LoRA rank.
+- $\alpha$ controls update scale.
+
+### Intuition
+
+Instead of learning an unrestricted update with:
+
+$$
+d_{\mathrm{out}}d_{\mathrm{in}}
+$$
+
+degrees of freedom, LoRA constrains the update to a lower-rank subspace.
+
+### Qwen Project Application
+
+The pretrained transformation remains intact.
+
+The LoRA matrices learn a smaller task-specific correction for Little Content behavior.
+
+### Design Decision
+
+LoRA is our **primary PEFT method** for the theoretical project.
+
+---
+
+### Story Bridge 16 — Low Rank Is Useful Only If It Actually Saves Parameters
+
+The factorization looks compact.
+
+Now we should quantify how much smaller it is than a full matrix update.
+
+## Question 16 — How many trainable parameters does LoRA add?
+
+The original matrix has:
+
+$$
+N_{\mathrm{full}}
+=
+d_{\mathrm{out}}d_{\mathrm{in}}
+$$
+
+parameters.
+
+LoRA adds:
+
+$$
+N_{\mathrm{LoRA}}
+=
+rd_{\mathrm{in}}
++
+d_{\mathrm{out}}r
+$$
+
+or:
+
+$$
+N_{\mathrm{LoRA}}
+=
+r
+\left(
+d_{\mathrm{in}}
++
+d_{\mathrm{out}}
+\right)
+$$
+
+### Numerical example
+
+Suppose:
+
+$$
+d_{\mathrm{in}}
+=
+d_{\mathrm{out}}
+=
+4096
+$$
+
+Then:
+
+$$
+N_{\mathrm{full}}
+=
+4096\times4096
+=
+16{,}777{,}216
+$$
+
+For:
+
+$$
+r=8
+$$
+
+LoRA uses:
+
+$$
+N_{\mathrm{LoRA}}
+=
+8\times4096
++
+4096\times8
+=
+65{,}536
+$$
+
+The fraction is:
+
+$$
+\frac{
+65{,}536
+}{
+16{,}777{,}216
+}
+\approx
+0.003906
+$$
+
+or about:
+
+$$
+0.39\%
+$$
+
+of the original matrix size.
+
+### Important qualification
+
+This percentage is for **one matrix**.
+
+The full model's trainable fraction depends on:
+
+- Number of adapted layers.
+- Number of adapted projections.
+- Rank.
+- Whether the connector is trainable.
+- Whether vision modules are adapted.
+
+### Qwen Project Application
+
+This makes it possible to create a relatively small task-specific adapter while leaving the large Qwen backbone frozen.
+
+### Design Decision
+
+The final project will report the actual number and percentage of trainable parameters rather than merely saying "we used LoRA."
