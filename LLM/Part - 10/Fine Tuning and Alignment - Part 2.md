@@ -404,47 +404,66 @@ as the conceptual architecture.
 
 ### Story Bridge 4 — Once the Context Is Inside the Model, We Must Align Inputs With Next-Token Targets
 
-A causal language model predicts the next token.
+A causal language model always learns one basic task:
 
-That means the training target is shifted relative to the context.
+> Given everything visible so far, what token comes next?
+
+SFT can make this confusing because the complete correct response is already present in the training batch. The important point is that the causal mask prevents an earlier position from seeing future tokens.
+
+So the full sequence can be present physically, while each prediction is still made only from the allowed prefix.
 
 ## Question 4 — How are next-token predictions aligned during SFT?
 
-Suppose the assistant target is:
+Let us rebuild this from a simple language-model example before returning to Qwen.
 
-$$
-y_1,y_2,\ldots,y_T
-$$
+### Step 1 — Start with a plain sentence
 
-The model predicts:
-
-$$
-P(y_1\mid x)
-$$
-
-then:
-
-$$
-P(y_2\mid x,y_1)
-$$
-
-then:
-
-$$
-P(y_3\mid x,y_1,y_2)
-$$
-
-and so on.
-
-Conceptually:
+Suppose the training sequence is:
 
 ~~~text
-Context | y1 | y2 | y3
-          ↓    ↓    ↓
-Predict   y1   y2   y3
+I | love | pizza
 ~~~
 
-The logit vector at a prediction position is:
+The model is not trained to copy the same token at the same position.
+
+Instead:
+
+~~~text
+Given "I"
+→ predict "love"
+
+Given "I love"
+→ predict "pizza"
+~~~
+
+Mathematically:
+
+$$
+P(\text{love}\mid\text{I})
+$$
+
+and:
+
+$$
+P(\text{pizza}\mid\text{I,love})
+$$
+
+That is next-token prediction.
+
+---
+
+### Step 2 — What enters the Transformer?
+
+The complete known training sequence can be placed in one tensor:
+
+~~~text
+Position      0       1        2
+Token         I      love     pizza
+~~~
+
+The Transformer produces a hidden state and a vocabulary-logit vector at every position.
+
+For position $t$:
 
 $$
 z_t
@@ -454,15 +473,595 @@ $$
 
 where $V$ is vocabulary size.
 
-Many causal-LM training APIs perform the one-position logits/labels shift internally.
+The crucial alignment rule is:
+
+$$
+\boxed{
+\text{logits at position }t
+\rightarrow
+\text{target token at position }t+1
+}
+$$
+
+Therefore:
+
+| Logits produced from prefix ending at | Correct next-token target |
+|---|---|
+| I | love |
+| I love | pizza |
+
+The hidden state at the love position does not predict love. It predicts pizza.
+
+---
+
+### Step 3 — Why can the model not cheat?
+
+Because of the causal mask.
+
+At the position containing I:
+
+~~~text
+Visible:
+I
+
+Hidden:
+love
+pizza
+~~~
+
+So:
+
+$$
+h_0=f(\text{I})
+$$
+
+and its logits represent:
+
+$$
+P(\text{next token}\mid\text{I})
+$$
+
+The correct target is love.
+
+At the position containing love:
+
+~~~text
+Visible:
+I
+love
+
+Hidden:
+pizza
+~~~
+
+So:
+
+$$
+h_1=f(\text{I,love})
+$$
+
+and its logits represent:
+
+$$
+P(\text{next token}\mid\text{I,love})
+$$
+
+The correct target is pizza.
+
+Therefore the full sequence can exist in memory without future leakage.
+
+---
+
+### Step 4 — What does the one-position shift mean?
+
+Suppose the input sequence is:
+
+~~~text
+A | B | C | D
+~~~
+
+The model produces:
+
+~~~text
+logits[0]
+logits[1]
+logits[2]
+logits[3]
+~~~
+
+For next-token training, the useful comparisons are:
+
+~~~text
+logits[0] → B
+logits[1] → C
+logits[2] → D
+~~~
+
+So the target sequence is shifted one position to the left relative to the input positions used to produce the logits.
+
+For a sequence of length $L$:
+
+$$
+\text{prediction positions}
+=
+0,\ldots,L-2
+$$
+
+and:
+
+$$
+\text{target positions}
+=
+1,\ldots,L-1
+$$
+
+Many causal-language-model training APIs perform this logits-versus-label shift internally.
+
+---
+
+### Step 5 — Concrete token-ID example
+
+Suppose:
+
+~~~text
+Token        ID
+
+I            10
+love         25
+pizza        91
+EOS           2
+~~~
+
+Then:
+
+~~~text
+input_ids =
+[10, 25, 91, 2]
+~~~
+
+The model produces:
+
+$$
+z_0,z_1,z_2,z_3
+$$
+
+The useful training pairs are:
+
+~~~text
+z0 → target 25 = love
+z1 → target 91 = pizza
+z2 → target 2  = EOS
+~~~
+
+Equivalently:
+
+~~~text
+Input prefix          Correct next token
+
+I                  →  love
+I love             →  pizza
+I love pizza       →  EOS
+~~~
+
+---
+
+# Now Apply the Same Idea to the Qwen Little Content Project
+
+Suppose one training example is conceptually:
+
+~~~text
+USER:
+<image>
+Classify this page.
+
+ASSISTANT:
+Little Content
+~~~
+
+Let all screenshot and prompt context be represented by:
+
+$$
+x
+$$
+
+Suppose the assistant response tokenizes as:
+
+$$
+y_1=\text{Little}
+$$
+
+$$
+y_2=\text{Content}
+$$
+
+and:
+
+$$
+y_3=\text{EOS}
+$$
+
+Then the full known training sequence is:
+
+~~~text
+[ screenshot + instruction ] | Little | Content | EOS
+             x                   y1       y2       y3
+~~~
+
+### Prediction 1 — Little
+
+The prefix is only:
+
+$$
+x
+$$
+
+So the model predicts:
+
+$$
+P_\theta(y_1\mid x)
+$$
+
+or:
+
+$$
+P_\theta
+\left(
+\text{Little}
+\mid
+\text{screenshot + instruction}
+\right)
+$$
+
+Little itself is still a future token relative to the position whose logits make this prediction.
+
+### Prediction 2 — Content
+
+Now Little is part of the visible prefix.
+
+So:
+
+$$
+P_\theta(y_2\mid x,y_1)
+$$
+
+or:
+
+$$
+P_\theta
+\left(
+\text{Content}
+\mid
+\text{screenshot + instruction + Little}
+\right)
+$$
+
+Content itself is still hidden from that prediction position.
+
+### Prediction 3 — EOS
+
+After Little Content is visible:
+
+$$
+P_\theta
+\left(
+y_3
+\mid
+x,y_1,y_2
+\right)
+$$
+
+or:
+
+$$
+P_\theta
+\left(
+\text{EOS}
+\mid
+\text{screenshot + instruction + Little + Content}
+\right)
+$$
+
+Therefore:
+
+$$
+\boxed{
+P_\theta(y_1,y_2,y_3\mid x)
+=
+P_\theta(y_1\mid x)
+P_\theta(y_2\mid x,y_1)
+P_\theta(y_3\mid x,y_1,y_2)
+}
+$$
+
+---
+
+### Step 6 — The diagram to remember
+
+~~~text
+KNOWN TRAINING SEQUENCE
+
+[ screenshot + instruction ] [ Little ] [ Content ] [ EOS ]
+             x                 y1         y2        y3
+
+
+PREFIX USED                    NEXT TOKEN TARGET
+
+x
+↓
+predict y1 = Little
+
+
+x + Little
+↓
+predict y2 = Content
+
+
+x + Little + Content
+↓
+predict y3 = EOS
+~~~
+
+This is the cleanest mental model for SFT alignment.
+
+---
+
+### Step 7 — Why is Little both an input token and a target token?
+
+Because it plays two different roles at two different positions.
+
+Little is:
+
+1. The target predicted from the previous position.
+2. Part of the context used by the next position to predict Content.
+
+Conceptually:
+
+~~~text
+Previous prefix
+      ↓
+predict Little
+
+Then Little becomes part of the known prefix
+      ↓
+predict Content
+~~~
+
+There is no circular prediction.
+
+The model never sees Little at a position and then uses that same position to predict Little.
+
+That is exactly why the one-position shift exists.
+
+---
+
+### Step 8 — Why would training be wrong without the shift?
+
+If we compared the logits produced at the Little position against the target Little, the hidden state at that position would already contain Little.
+
+That would not be the desired next-token objective.
+
+The correct relation is:
+
+$$
+\boxed{
+z_t
+\rightarrow
+\text{token at position }t+1
+}
+$$
+
+not:
+
+$$
+z_t
+\rightarrow
+\text{token at position }t
+$$
+
+---
+
+### Step 9 — How does assistant-only masking fit into this?
+
+Suppose the sequence is:
+
+~~~text
+USER | Classify | page | ASSISTANT | Little | Content | EOS
+~~~
+
+We want the user prompt to condition the response, but we may not want direct target loss on those prompt tokens.
+
+Conceptually:
+
+~~~text
+Input:
+
+USER  Classify  page  ASSISTANT  Little  Content  EOS
+
+
+Labels:
+
+-100   -100     -100    -100      Little  Content  EOS
+~~~
+
+Here the ignored positions mean:
+
+> Use these tokens as context, but do not directly supervise them as assistant targets.
+
+After the normal next-token shift, the important comparisons are:
+
+~~~text
+logits after ASSISTANT
+        ↓
+target Little
+
+
+logits after Little
+        ↓
+target Content
+
+
+logits after Content
+        ↓
+target EOS
+~~~
+
+So **label shifting** and **assistant-only loss masking** solve different problems and work together.
+
+---
+
+### Step 10 — Keep these three objects separate
+
+#### Object 1 — Input sequence
+
+During training:
+
+~~~text
+Prompt + ground-truth assistant response
+~~~
+
+is available.
+
+#### Object 2 — Logits
+
+At each position:
+
+$$
+z_t\in\mathbb{R}^{V}
+$$
+
+contains scores for the **next** token.
+
+#### Object 3 — Labels
+
+The labels tell us which next token was actually correct.
+
+So remember:
+
+~~~text
+input at position t
+        ↓
+hidden state at t
+        ↓
+logits at t
+        ↓
+compare with target from position t+1
+~~~
+
+or:
+
+$$
+\boxed{
+\text{Input at }t
+\rightarrow
+\text{logits at }t
+\rightarrow
+\text{target at }t+1
+}
+$$
+
+---
+
+### Step 11 — How can training still be parallel?
+
+Logically:
+
+$$
+P(y_1,y_2,y_3\mid x)
+=
+P(y_1\mid x)
+P(y_2\mid x,y_1)
+P(y_3\mid x,y_1,y_2)
+$$
+
+At inference time:
+
+~~~text
+y1 does not exist yet
+→ generate y1
+
+then y2 does not exist yet
+→ generate y2
+
+then y3 does not exist yet
+→ generate y3
+~~~
+
+So inference is sequential.
+
+During SFT training, however, the ground-truth values:
+
+$$
+y_1,y_2,y_3
+$$
+
+already exist in the dataset.
+
+Therefore:
+
+$$
+[x,y_1,y_2,y_3]
+$$
+
+can be processed in one Transformer forward pass.
+
+The causal mask ensures:
+
+~~~text
+Position predicting y1
+can see x
+cannot see y1, y2, y3
+
+Position predicting y2
+can see x, y1
+cannot see y2, y3
+
+Position predicting y3
+can see x, y1, y2
+cannot see y3
+~~~
+
+So the model can calculate all of the required next-token distributions during the same training forward pass.
+
+This leads directly into **teacher forcing**, which we discuss in Question 5.
+
+---
 
 ### Qwen Project Application
 
-If a label tokenizes into several tokens, each label token becomes a next-token prediction target.
+For our Little Content example:
+
+~~~text
+Screenshot + instruction
+        ↓
+predict Little
+
+Screenshot + instruction + Little
+        ↓
+predict Content
+
+Screenshot + instruction + Little + Content
+        ↓
+predict EOS
+~~~
+
+The full correct response is present during training, but the causal mask determines which part of that response each prediction position is allowed to use.
 
 ### Design Decision
 
-We retain the standard autoregressive causal-LM objective rather than creating a custom sequence-training rule.
+We retain the standard autoregressive causal-LM objective.
+
+The alignment rule to remember is:
+
+$$
+\boxed{
+\text{logits at position }t
+\text{ predict the token at position }t+1
+}
+$$
+
+For the Qwen project:
+
+> **The full response is available during SFT, but every supervised prediction is still made only from the valid causal prefix.**
 
 ---
 
