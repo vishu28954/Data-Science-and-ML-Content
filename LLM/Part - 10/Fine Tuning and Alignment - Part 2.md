@@ -246,8 +246,7 @@ Little Content
 The conditioning context is:
 
 $$
-x
-=
+x =
 \{
 \text{image},
 \text{system instruction},
@@ -258,8 +257,7 @@ $$
 The supervised target is:
 
 $$
-y
-=
+y =
 \text{"Little Content"}
 $$
 
@@ -338,8 +336,7 @@ Assistant-token predictions
 Let the vision encoder produce:
 
 $$
-V
-=
+V =
 \left[
 v_1,
 v_2,
@@ -359,17 +356,14 @@ $$
 A projector can map a visual feature to the language-model hidden dimension:
 
 $$
-\tilde{v}_j
-=
+\tilde{v}_j =
 W_pv_j
 $$
 
 with:
 
 $$
-W_p
-\in
-\mathbb{R}^{d_{\mathrm{model}}\times d_v}
+W_p \in \mathbb{R}^{d_{\mathrm{model}}\times d_v}
 $$
 
 Different VLMs vary in how they implement image-token compression, connectors, image placeholders, cross-attention, and positional representations.
@@ -578,16 +572,14 @@ So the target sequence is shifted one position to the left relative to the input
 For a sequence of length $L$:
 
 $$
-\text{prediction positions}
-=
+\text{prediction positions} =
 0,\ldots,L-2
 $$
 
 and:
 
 $$
-\text{target positions}
-=
+\text{target positions} =
 1,\ldots,L-1
 $$
 
@@ -760,9 +752,7 @@ $$
 Therefore:
 
 $$
-\boxed{
-P_\theta(y_1,y_2,y_3\mid x)
-=
+\boxed{ P_\theta(y_1,y_2,y_3\mid x) =
 P_\theta(y_1\mid x)
 P_\theta(y_2\mid x,y_1)
 P_\theta(y_3\mid x,y_1,y_2)
@@ -962,8 +952,7 @@ $$
 Logically:
 
 $$
-P(y_1,y_2,y_3\mid x)
-=
+P(y_1,y_2,y_3\mid x) =
 P(y_1\mid x)
 P(y_2\mid x,y_1)
 P(y_3\mid x,y_1,y_2)
@@ -1072,14 +1061,9 @@ SFT training is different because the complete correct response is already prese
 Teacher forcing predicts each target token while conditioning on the **ground-truth previous target tokens**:
 
 $$
-P_\theta
-\left(
-y_t
-\mid
-x,
-y_{<t}^{\mathrm{ground\ truth}}
-\right)
+P_\theta \left( y_t \mid x, y_{\lt t}^{\text{ground truth}} \right)
 $$
+
 
 The entire target sequence is known during training, so token-position computations can be parallelized under a causal mask.
 
@@ -1129,8 +1113,7 @@ That brings us to token-level cross-entropy.
 Let the vocabulary logits at supervised position $t$ be:
 
 $$
-z_t
-=
+z_t =
 \left[
 z_{t,1},
 z_{t,2},
@@ -1142,8 +1125,7 @@ $$
 Softmax converts those logits into a probability distribution:
 
 $$
-P_\theta(k\mid c_t)
-=
+P_\theta(k\mid c_t) =
 \frac{
 e^{z_{t,k}}
 }{
@@ -1156,9 +1138,7 @@ where $c_t$ is the causal context.
 If the correct target token is $y_t$, the token loss is:
 
 $$
-\mathcal{L}_t
-=
--
+\mathcal{L}_t = -
 \log
 P_\theta
 \left(
@@ -1169,9 +1149,7 @@ $$
 For $T$ supervised response tokens:
 
 $$
-\mathcal{L}_{\mathrm{example}}
-=
--
+\mathcal{L}_{\mathrm{example}} = -
 \frac{1}{T}
 \sum_{t=1}^{T}
 \log
