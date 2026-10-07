@@ -1249,29 +1249,20 @@ $$
 and the correct earlier target tokens:
 
 $$
-y_{<t}^{\text{true}}
-=
-\left(
-y_1,
-y_2,
-\ldots,
-y_{t-1}
-\right)
+y_{\lt t}^{\text{true}} = \left( y_1, y_2, \ldots, y_{t-1} \right)
 $$
+
 
 So the teacher-forced prediction is:
 
 $$
-\boxed{
-P_\theta
-\left(
-y_t
-\mid
-x,
-y_{<t}^{\text{true}}
-\right)
-}
+\begin{array}{|c|}
+\hline
+P_\theta \left( y_t \mid x, y_{\lt t}^{\text{true}} \right) \\
+\hline
+\end{array}
 $$
+
 
 where:
 
@@ -1370,26 +1361,9 @@ That is one reason training is easier than inference.
 The logical probability of a target sequence is still autoregressive:
 
 $$
-P_\theta
-\left(
-y_1,y_2,y_3
-\mid
-x
-\right)
-=
-P_\theta
-\left(
-y_1\mid x
-\right)
-P_\theta
-\left(
-y_2\mid x,y_1
-\right)
-P_\theta
-\left(
-y_3\mid x,y_1,y_2
-\right)
+P_\theta \left( y_1, y_2, y_3 \mid x \right) = P_\theta \left( y_1 \mid x \right) P_\theta \left( y_2 \mid x, y_1 \right) P_\theta \left( y_3 \mid x, y_1, y_2 \right)
 $$
+
 
 That looks sequential.
 
