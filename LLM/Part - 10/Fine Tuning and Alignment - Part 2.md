@@ -3040,8 +3040,7 @@ Yes.
 Questions 1–7 used $x$ for the full multimodal input context. For this gradient discussion, it is useful to split that input into:
 
 $$
-x
-=
+x =
 \left(
 I,
 x_{\mathrm{text}}
@@ -3056,14 +3055,9 @@ where:
 For assistant token $t$, teacher forcing gives the causal context:
 
 $$
-c_t
-=
-\left(
-I,
-x_{\mathrm{text}},
-y_{<t}^{\mathrm{true}}
-\right)
+c_t = \left( I, x_{\mathrm{text}}, y_{\lt t}^{\text{true}} \right)
 $$
+
 
 where $y_{<t}^{\mathrm{true}}$ contains the correct previous assistant tokens.
 
@@ -3080,40 +3074,16 @@ indicate whether token position $t$ contributes to the supervised loss.
 The assistant-only SFT loss is therefore:
 
 $$
-\mathcal{L}
-=
--
-\frac{1}{\sum_t m_t}
-\sum_t
-m_t
-\log
-P_\theta
-\left(
-y_t
-\mid
-I,
-x_{\mathrm{text}},
-y_{<t}^{\mathrm{true}}
-\right)
+\mathcal{L} = - \frac{1}{\sum_t m_t} \sum_t m_t \log P_\theta \left( y_t \mid I, x_{\mathrm{text}}, y_{\lt t}^{\text{true}} \right)
 $$
+
 
 Equivalently, using the shorter causal-context notation:
 
 $$
-\mathcal{L}
-=
--
-\frac{1}{\sum_t m_t}
-\sum_t
-m_t
-\log
-P_\theta
-\left(
-y_t
-\mid
-c_t
-\right)
+\mathcal{L} = - \frac{1}{\sum_t m_t} \sum_t m_t \log P_\theta \left( y_t \mid c_t \right)
 $$
+
 
 The important point is that the image and prompt still appear inside the conditioning context.
 
@@ -3126,8 +3096,7 @@ So even though the prompt positions themselves have no direct token-level loss, 
 Let the vision encoder produce a visual representation:
 
 $$
-v
-=
+v =
 f_{\theta_v}(I)
 $$
 
@@ -3136,72 +3105,29 @@ where $\theta_v$ denotes the vision-encoder parameters.
 Let the hidden state used to predict assistant token $t$ depend on the visual representation and the textual/assistant history:
 
 $$
-h_t
-=
-g_\theta
-\left(
-v,
-x_{\mathrm{text}},
-y_{<t}^{\mathrm{true}}
-\right)
+h_t = g_\theta \left( v, x_{\mathrm{text}}, y_{\lt t}^{\text{true}} \right)
 $$
 
 The probability of the correct assistant token depends on that hidden state:
 
 $$
-P_\theta
-\left(
-y_t
-\mid
-c_t
-\right)
-=
-P_\theta
-\left(
-y_t
-\mid
-h_t
-\right)
+P_\theta \left( y_t \mid c_t \right) = P_\theta \left( y_t \mid h_t \right)
 $$
+
 
 Therefore, if the visual pathway is trainable, the chain rule gives a gradient path from the assistant loss back into the visual parameters:
 
 $$
-\frac{\partial \mathcal{L}}
-{\partial \theta_v}
-=
-\sum_t
-\frac{\partial \mathcal{L}}
-{\partial h_t}
-\frac{\partial h_t}
-{\partial v}
-\frac{\partial v}
-{\partial \theta_v}
+\frac{\partial \mathcal{L}}{\partial \theta_v} = \sum_t \frac{\partial \mathcal{L}}{\partial h_t} \frac{\partial h_t}{\partial v} \frac{\partial v}{\partial \theta_v}
 $$
+
 
 If we write the masked objective explicitly, the same idea is:
 
 $$
-\frac{\partial \mathcal{L}}
-{\partial \theta_v}
-=
--
-\frac{1}{\sum_t m_t}
-\sum_t
-m_t
-\frac{
-\partial
-\log
-P_\theta
-\left(
-y_t\mid c_t
-\right)
-}{
-\partial h_t
-}
-\frac{\partial h_t}{\partial v}
-\frac{\partial v}{\partial \theta_v}
+\frac{\partial \mathcal{L}}{\partial \theta_v} = - \frac{1}{\sum_t m_t} \sum_t m_t \frac{\partial \log P_\theta \left( y_t \mid c_t \right)}{\partial h_t} \frac{\partial h_t}{\partial v} \frac{\partial v}{\partial \theta_v}
 $$
+
 
 So the gradient originates from supervised assistant-token loss, but it can flow through any trainable component that helped produce those assistant predictions.
 
@@ -3218,53 +3144,23 @@ Little Content
 For the first assistant token:
 
 $$
-\mathcal{L}_{\mathrm{Little}}
-=
--
-\log
-P_\theta
-\left(
-\text{Little}
-\mid
-I,
-x_{\mathrm{text}}
-\right)
+\mathcal{L}_{\mathrm{Little}} = - \log P_\theta \left( \text{Little} \mid I, x_{\mathrm{text}} \right)
 $$
+
 
 For the second assistant token, teacher forcing adds the correct previous token:
 
 $$
-\mathcal{L}_{\mathrm{Content}}
-=
--
-\log
-P_\theta
-\left(
-\text{Content}
-\mid
-I,
-x_{\mathrm{text}},
-\text{Little}
-\right)
+\mathcal{L}_{\mathrm{Content}} = - \log P_\theta \left( \text{Content} \mid I, x_{\mathrm{text}}, \text{Little} \right)
 $$
+
 
 If EOS is also supervised:
 
 $$
-\mathcal{L}_{\mathrm{EOS}}
-=
--
-\log
-P_\theta
-\left(
-\text{EOS}
-\mid
-I,
-x_{\mathrm{text}},
-\text{Little},
-\text{Content}
-\right)
+\mathcal{L}_{\mathrm{EOS}} = - \log P_\theta \left( \text{EOS} \mid I, x_{\mathrm{text}}, \text{Little}, \text{Content} \right)
 $$
+
 
 The screenshot $I$ appears in every relevant conditional probability.
 
@@ -3277,18 +3173,15 @@ That is why the image can influence the loss even though we do not define a sepa
 If the vision encoder is frozen during optimization, its parameters remain unchanged:
 
 $$
-\theta_v^{(k+1)}
-=
-\theta_v^{(k)}
+\theta_v^{(k+1)} = \theta_v^{(k)}
 $$
 
 The visual representation still enters the forward pass:
 
 $$
-v
-=
-f_{\theta_v}(I)
+v = f_{\theta_v}(I)
 $$
+
 
 and therefore still affects the assistant-token probabilities.
 
@@ -3297,8 +3190,7 @@ But the optimizer does not update $\theta_v$.
 If a multimodal connector is trainable, let:
 
 $$
-u
-=
+u =
 g_{\phi_c}(v)
 $$
 
@@ -3307,10 +3199,7 @@ where $\phi_c$ denotes connector parameters.
 Then, in general, assistant-token loss can produce:
 
 $$
-\frac{\partial \mathcal{L}}
-{\partial \phi_c}
-\neq
-0
+\frac{\partial \mathcal{L}} {\partial \phi_c} \neq 0
 $$
 
 so the connector can learn even while the vision encoder stays frozen.
