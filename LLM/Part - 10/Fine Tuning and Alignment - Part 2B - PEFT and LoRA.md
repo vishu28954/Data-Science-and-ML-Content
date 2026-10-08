@@ -56,6 +56,79 @@ The next major decision is whether we update the entire model or only a small tr
 
 ## Question 12 — What is full fine-tuning?
 
+### Understand it using one small weight matrix
+
+In Part 2, we already learned how assistant-token loss is calculated. Full fine-tuning answers a different question: **which original model weights should change because of that loss?**
+
+Take a tiny linear layer:
+
+$$
+h=Wx
+$$
+
+Suppose its pretrained matrix is:
+
+$$
+W_0=
+\begin{bmatrix}
+0.2&0.5\\
+-0.3&0.8
+\end{bmatrix}
+$$
+
+After one training example, backpropagation might calculate:
+
+$$
+\nabla_W\mathcal{L}=
+\begin{bmatrix}
+0.1&-0.2\\
+0.4&0.1
+\end{bmatrix}
+$$
+
+With ordinary gradient descent and learning rate $\eta=0.1$:
+
+$$
+W_1=W_0-\eta\nabla_W\mathcal{L}
+$$
+
+so:
+
+$$
+W_1=
+\begin{bmatrix}
+0.19&0.52\\
+-0.34&0.79
+\end{bmatrix}
+$$
+
+**Notice what happened:** the entries of the original pretrained matrix changed. Real Qwen contains vastly larger matrices, but the logic is the same.
+
+### What does one full fine-tuning step actually do?
+
+~~~text
+Screenshot + instruction + correct answer
+        ↓
+Forward pass with teacher forcing
+        ↓
+Assistant-only cross-entropy loss
+        ↓
+Backpropagation
+        ↓
+Gradients for all selected trainable weights
+        ↓
+Optimizer changes those pretrained weights
+~~~
+
+Full fine-tuning does not change the definition of SFT, teacher forcing or cross-entropy. It changes **how many pretrained parameters receive optimizer updates**.
+
+### Why not always do this?
+
+Qwen already knows a great deal about images and language. Our new task is narrow: identify visually low-content search pages. Updating billions of original weights can consume substantial training memory and compute, and it may over-specialize the model to a limited labelled dataset.
+
+The next question is therefore unavoidable: **why does updating all those weights cost so much memory?**
+
+
 In full fine-tuning, most or all pretrained model parameters remain trainable.
 
 Let:
@@ -136,6 +209,68 @@ Training needs additional gradient and optimizer state.
 So full fine-tuning can require far more memory than inference.
 
 ## Question 13 — Why is full fine-tuning so memory-intensive?
+
+### Build the memory cost one component at a time
+
+A model with $P$ parameters does not require memory only for its weights during training. It may need gradients, optimizer states, saved activations and temporary buffers as well.
+
+| Component | Purpose | Illustrative memory |
+|---|---|---|
+| Pretrained weights | Forward computation | $2P$ bytes if stored in FP16/BF16 |
+| Gradients | Directions for trainable weight changes | $4P$ bytes if stored in FP32 |
+| Adam moments | Optimizer tracks first and second moments | $8P$ bytes for two FP32 arrays |
+| Activations | Needed to compute backward derivatives | Varies with batch, image resolution, context and checkpointing |
+| Runtime buffers | Temporary and framework memory | Depends on implementation |
+
+These precision choices are an **illustrative example**, not a universal training setup.
+
+For seven billion trainable parameters, that example becomes:
+
+$$
+M_{\mathrm{weights}}
+\approx 7\times10^9\times2
+=14\ \mathrm{GB}
+$$
+
+$$
+M_{\mathrm{gradients}}
+\approx 7\times10^9\times4
+=28\ \mathrm{GB}
+$$
+
+$$
+M_{\mathrm{Adam\ moments}}
+\approx 7\times10^9\times8
+=56\ \mathrm{GB}
+$$
+
+Thus these three components alone would take:
+
+$$
+14+28+56=98\ \mathrm{GB}
+$$
+
+before activations, master weights or other overhead. Other implementations may use mixed precision, sharding, offloading or compressed states and produce substantially different totals.
+
+### Why can inference fit while fine-tuning cannot?
+
+~~~text
+Inference:
+weights + forward activations/cache
+
+Full fine-tuning:
+weights + backward activations
++ gradients + optimizer states + buffers
+~~~
+
+Inference does not need the optimizer moments used to train every weight.
+
+### Why a VLM adds another challenge
+
+Qwen receives images as well as text. Depending on its image processor, higher screenshot resolution can increase the amount of visual information flowing through the network. More tokens, longer sequences and larger batches can raise activation memory even when the parameter count stays fixed.
+
+That is why Question 14 asks: **Can we avoid storing optimizer state and gradients for almost all pretrained parameters, without losing the pretrained model's useful representations?**
+
 
 A simplified training-memory decomposition is:
 
@@ -239,6 +374,77 @@ Parameter-Efficient Fine-Tuning asks:
 That is a natural match for our project goals.
 
 ## Question 14 — What is Parameter-Efficient Fine-Tuning?
+
+### The simple mental model: keep the old mapping, learn a small correction
+
+We already know that a pretrained linear layer computes:
+
+$$
+h=W_0x
+$$
+
+Full fine-tuning changes the original matrix $W_0$. But a parameter-efficient method can instead keep $W_0$ frozen and add a trainable correction:
+
+$$
+h=W_0x+\Delta Wx
+$$
+
+Read this as:
+
+~~~text
+Original pretrained representation
+                +
+New task-specific correction
+                ↓
+Adapted representation
+~~~
+
+Our supervised assistant-token loss is unchanged; what changes is which parameters are trainable.
+
+### What does frozen actually mean?
+
+At successive optimizer steps, a frozen matrix stays unchanged:
+
+$$
+W_0^{(k+1)}=W_0^{(k)}
+$$
+
+But **frozen does not mean bypassed**. Qwen still executes the pretrained layer in its forward pass.
+
+If a trainable adapter with parameters $\phi$ affects the output, then:
+
+$$
+h=f(x;W_0,\phi)
+$$
+
+The assistant loss can change $\phi$ even though it does not change $W_0$.
+
+~~~text
+Screenshot and instruction
+        ↓
+Frozen pretrained computation (still used)
+        ↓
+Trainable correction
+        ↓
+Assistant-token probabilities
+        ↓
+Masked cross-entropy
+        ↓
+Update only trainable correction
+~~~
+
+### An important catch
+
+Simply making $\Delta W$ a second, full-size matrix would still require a large number of trainable parameters. We need the correction to be **small in trainable size**.
+
+That leads directly to LoRA, which represents the correction as a product of two much smaller matrices.
+
+### Interview check
+
+If asked, "How can a frozen model learn?", the correct answer is: **The pretrained weights are fixed, but added trainable parameters modify the effective computation. Gradients reach those trainable parameters through the same assistant-token loss.**
+
+PEFT is a family of methods. LoRA is one useful member of that family, rather than another name for all PEFT methods.
+
 
 Parameter-Efficient Fine-Tuning, or **PEFT**, keeps most pretrained parameters frozen and learns a much smaller trainable parameter set.
 
