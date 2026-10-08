@@ -3288,8 +3288,7 @@ $$
 Then:
 
 $$
-P_\theta(y_1,y_2\mid x)
-=
+P_\theta(y_1,y_2\mid x) =
 P_\theta(y_1\mid x)
 P_\theta(y_2\mid x,y_1)
 $$
@@ -3297,15 +3296,9 @@ $$
 and:
 
 $$
-\log
-P_\theta(y_1,y_2\mid x)
-=
-\log
-P_\theta(y_1\mid x)
-+
-\log
-P_\theta(y_2\mid x,y_1)
+\log P_\theta(y_1, y_2 \mid x) = \log P_\theta(y_1 \mid x) + \log P_\theta(y_2 \mid x, y_1)
 $$
+
 
 SFT therefore supervises every token in the canonical target string.
 
@@ -3380,23 +3373,18 @@ Limitations:
 Suppose a hidden representation $h\in\mathbb{R}^{d}$ feeds a two-class head:
 
 $$
-z
-=
+z =
 W_c h+b_c
 $$
 
 with:
 
 $$
-W_c
-\in
-\mathbb{R}^{2\times d}
+W_c \in \mathbb{R}^{2\times d}
 $$
 
 $$
-b_c
-\in
-\mathbb{R}^{2}
+b_c \in \mathbb{R}^{2}
 $$
 
 and therefore:
@@ -3410,17 +3398,9 @@ $$
 The class probabilities are:
 
 $$
-P_\theta
-\left(
-y=k\mid x
-\right)
-=
-\frac{
-e^{z_k}
-}{
-\sum_{j=1}^{2}e^{z_j}
-}
+P_\theta \left( y = k \mid x \right) = \frac{e^{z_k}}{\sum_{j=1}^{2} e^{z_j}}
 $$
+
 
 Advantages:
 
@@ -3484,48 +3464,26 @@ Let the positive label contain $T_+$ tokens and the negative label contain $T_-$
 Their sequence log-scores are:
 
 $$
-S_+(x)
-=
-\sum_{t=1}^{T_+}
-\log
-P_\theta
-\left(
-y_t^{(+)}
-\mid
-x,
-y_{<t}^{(+)}
-\right)
+S_+(x) = \sum_{t=1}^{T_+} \log P_\theta \left( y_t^{(+)} \mid x, y_{\lt t}^{(+)} \right)
 $$
 
 and:
 
 $$
-S_-(x)
-=
-\sum_{t=1}^{T_-}
-\log
-P_\theta
-\left(
-y_t^{(-)}
-\mid
-x,
-y_{<t}^{(-)}
-\right)
-$$
+S_-(x) = \sum_{t=1}^{T_-} \log P_\theta \left( y_t^{(-)} \mid x, y_{\lt t}^{(-)} \right)
+
 
 A relative class score is:
 
 $$
-s(x)
-=
+s(x) =
 S_+(x)-S_-(x)
 $$
 
 A thresholded decision can then be written as:
 
 $$
-\hat{y}
-=
+\hat{y} =
 \mathbb{1}
 \left[
 s(x)\ge\tau
@@ -3537,24 +3495,20 @@ where $\tau$ is chosen using validation data.
 If the canonical labels have different token lengths, one possible comparison is the mean log-probability per token:
 
 $$
-\bar{S}_+(x)
-=
+\bar{S}_+(x) =
 \frac{1}{T_+}
 S_+(x)
 $$
 
 $$
-\bar{S}_-(x)
-=
-\frac{1}{T_-}
+\bar{S}_-(x) = \frac{1}{T_-}
 S_-(x)
 $$
 
 with normalized relative score:
 
 $$
-\bar{s}(x)
-=
+\bar{s}(x) =
 \bar{S}_+(x)-\bar{S}_-(x)
 $$
 
@@ -3613,17 +3567,9 @@ $$
 through updates such as:
 
 $$
-\theta_{k+1}
-=
-\theta_k
--
-\eta
-\nabla_\theta
-\mathcal{L}
-\left(
-\theta_k
-\right)
+\theta_{k+1} = \theta_k - \eta \nabla_\theta \mathcal{L} \left( \theta_k \right)
 $$
+
 
 ### Advantages
 
@@ -3684,18 +3630,9 @@ So full fine-tuning can require far more memory than inference.
 A simplified training-memory decomposition is:
 
 $$
-M_{\mathrm{train}}
-\approx
-M_{\mathrm{weights}}
-+
-M_{\mathrm{gradients}}
-+
-M_{\mathrm{optimizer}}
-+
-M_{\mathrm{activations}}
-+
-M_{\mathrm{runtime}}
+M_{\mathrm{train}} \approx M_{\mathrm{weights}} + M_{\mathrm{gradients}} + M_{\mathrm{optimizer}} + M_{\mathrm{activations}} + M_{\mathrm{runtime}}
 $$
+
 
 ### Weight memory
 
@@ -3745,8 +3682,7 @@ $$
 For a 7B-parameter model:
 
 $$
-7\times10^9\times8
-=
+7\times10^9\times8 =
 56\times10^9
 $$
 
@@ -3799,16 +3735,14 @@ Parameter-Efficient Fine-Tuning, or **PEFT**, keeps most pretrained parameters f
 Let:
 
 $$
-\theta_0
-=
+\theta_0 =
 \text{frozen base parameters}
 $$
 
 and:
 
 $$
-\phi
-=
+\phi =
 \text{trainable PEFT parameters}
 $$
 
@@ -3821,8 +3755,7 @@ $$
 and the optimization becomes:
 
 $$
-\phi^*
-=
+\phi^* =
 \operatorname*{arg\,min}_{\phi}
 \mathcal{L}
 \left(
@@ -3868,8 +3801,7 @@ We now need to derive that update.
 Consider a pretrained linear transformation:
 
 $$
-h
-=
+h =
 W_0x
 $$
 
@@ -3926,8 +3858,7 @@ $$
 Using the common LoRA scaling factor $\alpha/r$, define the effective adapter update as:
 
 $$
-\Delta W_{\mathrm{LoRA}}
-=
+\Delta W_{\mathrm{LoRA}} =
 \frac{\alpha}{r}
 BA
 $$
@@ -3935,16 +3866,14 @@ $$
 The effective weight matrix is:
 
 $$
-W
-=
+W =
 W_0+\Delta W_{\mathrm{LoRA}}
 $$
 
 and the linear transformation becomes:
 
 $$
-h
-=
+h =
 W_0x
 +
 \frac{\alpha}{r}
@@ -3989,8 +3918,7 @@ Now we should quantify how much smaller it is than a full matrix update.
 The original matrix has:
 
 $$
-N_{\mathrm{full}}
-=
+N_{\mathrm{full}} =
 d_{\mathrm{out}}d_{\mathrm{in}}
 $$
 
@@ -3999,8 +3927,7 @@ parameters.
 LoRA adds:
 
 $$
-N_{\mathrm{LoRA}}
-=
+N_{\mathrm{LoRA}} =
 rd_{\mathrm{in}}
 +
 d_{\mathrm{out}}r
@@ -4009,8 +3936,7 @@ $$
 or:
 
 $$
-N_{\mathrm{LoRA}}
-=
+N_{\mathrm{LoRA}} =
 r
 \left(
 d_{\mathrm{in}}
@@ -4024,20 +3950,13 @@ $$
 Suppose:
 
 $$
-d_{\mathrm{in}}
-=
-d_{\mathrm{out}}
-=
-4096
+d_{\mathrm{in}} = d_{\mathrm{out}} = 4096
 $$
 
 Then:
 
 $$
-N_{\mathrm{full}}
-=
-4096\times4096
-=
+N_{\mathrm{full}} = 4096\times4096 =
 16{,}777{,}216
 $$
 
@@ -4050,12 +3969,7 @@ $$
 LoRA uses:
 
 $$
-N_{\mathrm{LoRA}}
-=
-8\times4096
-+
-4096\times8
-=
+N_{\mathrm{LoRA}} = 8\times4096 + 4096\times8 =
 65{,}536
 $$
 
@@ -4144,8 +4058,7 @@ $$
 so the effective update is:
 
 $$
-\Delta W_{\mathrm{LoRA}}
-=
+\Delta W_{\mathrm{LoRA}} =
 \frac{\alpha}{r}BA
 $$
 
@@ -4184,16 +4097,14 @@ $$
 and therefore:
 
 $$
-\Delta W_{\mathrm{LoRA}}
-=
+\Delta W_{\mathrm{LoRA}} =
 0
 $$
 
 so:
 
 $$
-W
-=
+W =
 W_0
 $$
 
@@ -4811,8 +4722,7 @@ Trainable LoRA parameters and selected connector parameters do.
 For the trainable parameter set $\phi$:
 
 $$
-g_k
-=
+g_k =
 \nabla_\phi
 \mathcal{L}
 \left(
@@ -4823,10 +4733,7 @@ $$
 An optimizer such as Adam transforms this raw gradient into an update direction $\widehat{g}_k$, after which:
 
 $$
-\phi_{k+1}
-=
-\phi_k
--
+\phi_{k+1} = \phi_k -
 \eta
 \widehat{g}_k
 $$
@@ -4866,8 +4773,7 @@ The attention mask identifies valid sequence positions rather than padding.
 Conceptually:
 
 $$
-a_t
-=
+a_t =
 \begin{cases}
 1 & \text{real token}\\
 0 & \text{padding token}
@@ -4881,8 +4787,7 @@ Causal masking separately prevents access to future positions.
 The loss mask identifies which valid tokens should contribute to the supervised objective:
 
 $$
-m_t
-=
+m_t =
 \begin{cases}
 1 & \text{assistant target token}\\
 0 & \text{context or padding}
@@ -5069,8 +4974,7 @@ These belong to later parts rather than being guessed prematurely.
 ## SFT dataset
 
 $$
-\mathcal{D}_{\mathrm{SFT}}
-=
+\mathcal{D}_{\mathrm{SFT}} =
 \{
 (x_i,y_i)
 \}_{i=1}^{N}
@@ -5079,179 +4983,80 @@ $$
 ## Conditional response probability
 
 $$
-P_\theta
-\left(
-y_i\mid x_i
-\right)
-=
-\prod_{t=1}^{T_i}
-P_\theta
-\left(
-y_{i,t}
-\mid
-x_i,
-y_{i,<t}^{\mathrm{true}}
-\right)
+P_\theta \left( y_i \mid x_i \right) = \prod_{t=1}^{T_i} P_\theta \left( y_{i,t} \mid x_i, y_{i,\lt t}^{\text{true}} \right)
 $$
 
 ## SFT negative log-likelihood
 
 $$
-\mathcal{L}_{\mathrm{SFT}}
-=
--
-\sum_{i=1}^{N}
-\sum_{t=1}^{T_i}
-\log
-P_\theta
-\left(
-y_{i,t}
-\mid
-x_i,
-y_{i,<t}^{\mathrm{true}}
-\right)
+\mathcal{L}_{\mathrm{SFT}} = - \sum_{i=1}^{N} \sum_{t=1}^{T_i} \log P_\theta \left( y_{i,t} \mid x_i, y_{i,\lt t}^{\text{true}} \right)
 $$
+
 
 ## Softmax
 
 $$
-P_\theta(k\mid c_t)
-=
-\frac{
-e^{z_{t,k}}
-}{
-\sum_{j=1}^{V}e^{z_{t,j}}
-}
+P_\theta(k \mid c_t) = \frac{e^{z_{t,k}}}{\sum_{j=1}^{V} e^{z_{t,j}}}
 $$
+
 
 ## Token cross-entropy
 
 $$
-\mathcal{L}_t
-=
--
-\log
-P_\theta
-\left(
-y_t\mid c_t
-\right)
+\mathcal{L}_t = - \log P_\theta \left( y_t \mid c_t \right)
 $$
+
 
 ## Assistant-only masked loss
 
 $$
-\mathcal{L}
-=
--
-\frac{
-\sum_t
-m_t
-\log
-P_\theta
-\left(
-y_t\mid c_t
-\right)
-}{
-\sum_t m_t
-}
+\mathcal{L} = - \frac{\sum_t m_t \log P_\theta \left( y_t \mid c_t \right)}{\sum_t m_t}
 $$
 
 ## PEFT objective
 
 $$
-\phi^*
-=
-\operatorname*{arg\,min}_{\phi}
-\mathcal{L}
-\left(
-\theta_0,\phi
-\right)
+\phi^* = \arg\min_{\phi} \mathcal{L} \left( \theta_0, \phi \right)
 $$
 
 ## LoRA update
 
 $$
-\Delta W_{\mathrm{LoRA}}
-=
-\frac{\alpha}{r}
-BA
+\Delta W_{\mathrm{LoRA}} = \frac{\alpha}{r} BA
 $$
 
 ## Scaled LoRA layer
 
 $$
-h
-=
-W_0x
-+
-\frac{\alpha}{r}
-BAx
+h = W_0x + \frac{\alpha}{r} BAx
 $$
 
 ## LoRA parameter count
 
 $$
-N_{\mathrm{LoRA}}
-=
-r
-\left(
-d_{\mathrm{in}}
-+
-d_{\mathrm{out}}
-\right)
+N_{\mathrm{LoRA}} = r \left( d_{\mathrm{in}} + d_{\mathrm{out}} \right)
 $$
 
 ## Approximate training-memory decomposition
 
 $$
-M_{\mathrm{train}}
-\approx
-M_{\mathrm{weights}}
-+
-M_{\mathrm{gradients}}
-+
-M_{\mathrm{optimizer}}
-+
-M_{\mathrm{activations}}
-+
-M_{\mathrm{runtime}}
+M_{\mathrm{train}} \approx M_{\mathrm{weights}} + M_{\mathrm{gradients}} + M_{\mathrm{optimizer}} + M_{\mathrm{activations}} + M_{\mathrm{runtime}}
 $$
 
 ## Generative class score
 
 $$
-S_+(x)
-=
-\sum_{t=1}^{T_+}
-\log
-P_\theta
-\left(
-y_t^{(+)}
-\mid
-x,
-y_{<t}^{(+)}
-\right)
+S_+(x) = \sum_{t=1}^{T_+} \log P_\theta \left( y_t^{(+)} \mid x, y_{\lt t}^{(+)} \right)
 $$
 
 $$
-S_-(x)
-=
-\sum_{t=1}^{T_-}
-\log
-P_\theta
-\left(
-y_t^{(-)}
-\mid
-x,
-y_{<t}^{(-)}
-\right)
+S_-(x) = \sum_{t=1}^{T_-} \log P_\theta \left( y_t^{(-)} \mid x, y_{\lt t}^{(-)} \right)
 $$
 
 $$
-s(x)
-=
-S_+(x)-S_-(x)
+s(x) = S_+(x) - S_-(x)
 $$
+
 
 ---
 
