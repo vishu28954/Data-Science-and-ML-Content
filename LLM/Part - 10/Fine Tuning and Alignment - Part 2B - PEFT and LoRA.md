@@ -375,6 +375,72 @@ That is a natural match for our project goals.
 
 ## Question 14 — What is Parameter-Efficient Fine-Tuning?
 
+### First understand the word "adapter"
+
+An **adapter is a small collection of trainable parameters added to a pretrained model so we can change its behavior without updating all its original weights**.
+
+Think of Qwen as an experienced reader of webpages. It already has a large amount of pretrained visual and language knowledge. Our Little Content task needs a specific adjustment: pay attention to evidence such as large blank areas, low information density or pages that contain almost no useful content.
+
+An adapter is the trainable addition that learns that adjustment. **It is not a second complete Qwen model, a new screenshot, a class label or a layer that replaces the whole original network.**
+
+For **LoRA**, the adapter is usually the pair of trainable matrices $A$ and $B$ attached to a selected linear layer. Their outputs provide a correction alongside the original layer.
+
+#### Visual 1 — Where the adapter sits
+
+The following diagram shows **one adapted linear layer**, not the entire architecture:
+
+~~~mermaid
+flowchart TD
+    X["Input hidden representation x"] --> F["Frozen pretrained weight W₀"]
+    X --> A["Trainable LoRA A<br/>small intermediate representation"]
+    A --> B["Trainable LoRA B"]
+    B --> S["Scale adapter output by α / r"]
+    F --> ADD["Add both contributions"]
+    S --> ADD
+    ADD --> H["Adapted output h"]
+~~~
+
+Read it from top to bottom. The original path and the LoRA path run in parallel; their outputs are **added**. During SFT, gradients from assistant-token cross-entropy update the LoRA matrices, while the frozen pretrained weight $W_0$ remains unchanged.
+
+Without an adapter:
+
+$$
+h=W_0x
+$$
+
+With a LoRA adapter:
+
+$$
+h=W_0x+\frac{\alpha}{r}BAx
+$$
+
+The resulting layer produces the same output shape, but its behavior can change because the adapter learns.
+
+#### Visual 2 — Apply that idea to our Qwen screenshot classifier
+
+~~~mermaid
+flowchart TD
+    I["SERP screenshot"] --> V["Qwen visual pathway"]
+    T["Instruction: Classify this page"] --> C["Multimodal context"]
+    V --> C
+    C --> L["Language-model hidden representation"]
+    L --> BASE["Frozen pretrained projection"]
+    L --> AD["LoRA adapter attached to that projection"]
+    BASE --> SUM["Add outputs"]
+    AD --> SUM
+    SUM --> NEXT["Continue through model"]
+    NEXT --> Y["Assistant response: Little Content"]
+    Y -. "Teacher-forced token loss during training" .-> AD
+~~~
+
+This is a **conceptual** diagram: the exact Qwen variant and exact layer names have not been selected. The adapter is not placed on the raw screenshot; it modifies selected model projections after image and text have been converted into model representations.
+
+An important distinction:
+
+- **An adapter** means the trainable addition.
+- **Adapter placement** means **where** we attach that addition, such as a Query or Value projection.
+- **Adapter rank** means **how wide the small internal LoRA path is**, which we will explain visually in Question 15.
+
 ### The simple mental model: keep the old mapping, learn a small correction
 
 We already know that a pretrained linear layer computes:
@@ -509,6 +575,127 @@ Among PEFT methods, LoRA is especially attractive because it modifies the effect
 We now need to derive that update.
 
 ## Question 15 — What is LoRA mathematically?
+
+### Before the derivation: what does "rank" actually mean?
+
+**Rank has two related meanings here.**
+
+In linear algebra, the rank of a matrix is the number of linearly independent directions it can represent. For LoRA, we choose a number $r$ called the **adapter rank**. We then create $A$ and $B$ with a shared intermediate dimension of size $r$, so their product can represent an update with **rank at most $r$**.
+
+In much simpler terms:
+
+> **Rank is the width of the small trainable path inside the LoRA adapter. A smaller rank restricts how many independent directions the adapter can change; a larger rank gives it more freedom.**
+
+Rank is **not** the number of images, the number of training steps, the number of adapters, the number of Qwen layers, or the number of classes.
+
+#### Visual 3 — Rank is the bottleneck width
+
+~~~mermaid
+flowchart LR
+    subgraph R1["LoRA with rank 1"]
+        X1["Input: 4 values"] --> A1["A: 4 → 1"]
+        A1 --> H1["1 intermediate value"]
+        H1 --> B1["B: 1 → 4"]
+        B1 --> O1["Output: 4 values"]
+    end
+    subgraph R2["LoRA with rank 2"]
+        X2["Input: 4 values"] --> A2["A: 4 → 2"]
+        A2 --> H2["2 intermediate values"]
+        H2 --> B2["B: 2 → 4"]
+        B2 --> O2["Output: 4 values"]
+    end
+~~~
+
+Both adapters take four input values and produce four output values. **Only the width of the middle changes.** That middle width is $r$.
+
+#### Visual 4 — A tiny matrix example: rank 1 versus rank 2
+
+Suppose the original layer has four inputs and four outputs.
+
+With rank 1:
+
+$$
+A\in\mathbb{R}^{1\times4},
+\qquad
+B\in\mathbb{R}^{4\times1}
+$$
+
+The update $BA$ is a $4\times4$ matrix, but it is built from one column vector multiplied by one row vector:
+
+$$
+BA=
+\begin{bmatrix}
+b_1\\
+b_2\\
+b_3\\
+b_4
+\end{bmatrix}
+\begin{bmatrix}
+a_1&a_2&a_3&a_4
+\end{bmatrix}
+$$
+
+All its columns are multiples of the same vector, so the resulting update has rank **at most 1**.
+
+With rank 2:
+
+$$
+A\in\mathbb{R}^{2\times4},
+\qquad
+B\in\mathbb{R}^{4\times2}
+$$
+
+Now the update can be written as the **sum of two outer products**:
+
+$$
+BA=b^{(1)}a^{(1)\mathsf T}
++
+b^{(2)}a^{(2)\mathsf T}
+$$
+
+where each $b^{(j)}\in\mathbb{R}^{4}$ and $a^{(j)}\in\mathbb{R}^{4}$.
+
+It can now combine up to two independent directions. That is why rank 2 is more flexible than rank 1, although neither is guaranteed to learn the task better.
+
+#### What might those directions mean for Qwen?
+
+Imagine that, for **illustration only**, a selected hidden representation contains useful information about several visual cues:
+
+~~~text
+Qwen hidden representation
+    ├── amount of readable text
+    ├── proportion of blank layout
+    ├── prominence of a login form
+    └── strength of navigation / other content
+~~~
+
+These labels are **conceptual features**, not a claim that any particular hidden-state coordinate has exactly that meaning.
+
+A rank-1 LoRA adapter has room for at most one independent update direction. A rank-2 adapter can combine up to two; rank-8 allows up to eight. The model **learns** the actual combinations from data: we do **not** manually assign one direction to "blank space" and another to "login form."
+
+This is what it means when someone says rank controls adapter **capacity**.
+
+#### The trade-off you should remember
+
+~~~text
+Smaller rank
+    ↓
+Narrower internal adapter path
+    ↓
+Fewer trainable parameters
+    ↓
+Lower adaptation capacity / lower parameter memory
+
+Larger rank
+    ↓
+Wider internal adapter path
+    ↓
+More trainable parameters
+    ↓
+More adaptation capacity / more parameter memory
+~~~
+
+Higher rank does **not automatically** mean better precision, because overfitting, data quality and placement also matter.
 
 ### Story continuation: a full-size correction is still expensive
 
@@ -761,6 +948,62 @@ The factorization looks compact.
 Now we should quantify how much smaller it is than a full matrix update.
 
 ## Question 16 — How many trainable parameters does LoRA add?
+
+### Visual 5 — What does rank 8 look like in a Qwen attention projection?
+
+Suppose, **only as a numerical illustration**, the selected language projection has width 4096. That is an example dimension, **not a specification of every Qwen VLM**.
+
+A rank-8 adapter acts as:
+
+~~~mermaid
+flowchart TD
+    X["Qwen hidden representation<br/>4096 values"] --> F["Frozen projection<br/>4096 → 4096"]
+    X --> A["LoRA A<br/>4096 → 8"]
+    A --> R["Rank bottleneck<br/>8 values"]
+    R --> B["LoRA B<br/>8 → 4096"]
+    B --> S["Scale by α / 8"]
+    F --> PLUS["Add both 4096-value outputs"]
+    S --> PLUS
+    PLUS --> O["Adapted representation<br/>4096 values"]
+~~~
+
+The **rank is 8 because the middle adapter representation has eight values**. It does not reduce the actual Qwen hidden representation to eight values permanently; the adapter produces a correction of full output size and adds it to the original 4096-value output.
+
+For this illustrative 4096-by-4096 projection:
+
+$$
+N_{\mathrm{LoRA}}
+=
+8\times4096+4096\times8
+=
+65{,}536
+$$
+
+By comparison, the original projection contains:
+
+$$
+N_{\mathrm{full}}
+=
+4096\times4096
+=
+16{,}777{,}216
+$$
+
+So the adapter has far fewer **trainable** parameters, while the full frozen projection still exists and runs.
+
+If we change to rank 64, the middle path becomes **64 values wide**, and the adapter contains:
+
+$$
+N_{\mathrm{LoRA},r=64}
+=
+64\times4096+4096\times64
+=
+524{,}288
+$$
+
+The output stays 4096-dimensional in both cases. Only the **adapter's trainable capacity** changes.
+
+**Interview language:** "The adapter is an extra trainable correction attached to a frozen pretrained projection. The rank is the size of its internal bottleneck: rank 8 means the update is factorized through an eight-dimensional path, not that the whole model has eight dimensions."
 
 ### Derive the parameter saving before looking at the answer
 
@@ -1144,6 +1387,29 @@ The adapter does not automatically know where to go.
 So target-module selection is itself a model-capacity decision.
 
 ## Question 18 — Which Transformer matrices can receive LoRA adapters?
+
+### Visual 6 — Adapter placement versus adapter rank
+
+These two concepts often get confused.
+
+~~~mermaid
+flowchart TD
+    X["Qwen language hidden states"] --> ATT["Attention block"]
+    ATT --> Q["Query projection<br/>W_Q"]
+    ATT --> K["Key projection<br/>W_K"]
+    ATT --> V["Value projection<br/>W_V"]
+    ATT --> O["Output projection<br/>W_O"]
+    QA["Optional LoRA adapter<br/>rank r"] -. "attached to" .-> Q
+    VA["Optional LoRA adapter<br/>rank r"] -. "attached to" .-> V
+~~~
+
+In our **initial theoretical Qwen setup**, we propose adapters on Q and V projections:
+
+- **Placement:** *which* projections get a LoRA path (Q and V in this proposed baseline).
+- **Rank:** *how big* each path is internally (for example 8, to be chosen in later experiments).
+- **Number of adapters:** not the same as rank; if Q and V are adapted in many layers, multiple LoRA modules are involved.
+
+When someone says "LoRA rank 8 on Q and V," they mean **each selected adapted projection has a low-rank correction whose internal dimension is 8**, not that there are eight Qwen layers or eight different class labels.
 
 ### Reconnect LoRA to the attention mechanism
 
