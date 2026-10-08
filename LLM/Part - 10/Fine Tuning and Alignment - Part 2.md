@@ -3471,6 +3471,7 @@ and:
 
 $$
 S_-(x) = \sum_{t=1}^{T_-} \log P_\theta \left( y_t^{(-)} \mid x, y_{\lt t}^{(-)} \right)
+$$
 
 
 A relative class score is:
