@@ -1920,6 +1920,122 @@ The best way to consolidate this is to follow one example from screenshot to opt
 
 ## Question 23 — What happens in one Qwen SFT training step?
 
+### Before the detailed steps: connect SFT and LoRA into one story
+
+Our training example is a SERP screenshot, an instruction, and a canonical answer.
+
+~~~text
+Screenshot + "Classify this page"
+        ↓
+Qwen multimodal processor
+        ↓
+Visual + textual context
+        ↓
+Teacher-forced target: Little / Content / EOS
+        ↓
+Assistant-only token cross-entropy
+        ↓
+Backpropagation
+        ↓
+Trainable LoRA/connector weights update
+~~~
+
+The key point is that we do **not** run one independent training pass for each target token. Given the correct response tokens, the causal Transformer can produce the needed position-wise logits in one forward pass.
+
+### A small, auditable example
+
+Assume the model tokenizer splits the positive label as:
+
+~~~text
+Little | Content | EOS
+~~~
+
+This is an illustrative tokenization; the actual Qwen tokenizer must be checked.
+
+Assume the following correct-token probabilities:
+
+$$
+p_{\mathrm{Little}}=0.8
+$$
+
+$$
+p_{\mathrm{Content}}=0.6
+$$
+
+$$
+p_{\mathrm{EOS}}=0.9
+$$
+
+Then the assistant-only mean loss is:
+
+$$
+\mathcal{L}
+=
+-\frac{1}{3}
+\left(
+\log0.8+\log0.6+\log0.9
+\right)
+\approx 0.280
+$$
+
+The system/user prompt positions are masked from **direct target loss**, but they still affect the three probabilities.
+
+### What the optimizer is allowed to change
+
+Suppose the selected PEFT configuration is:
+
+~~~text
+Vision encoder: frozen
+Language base weights: frozen
+Language Q/V LoRA: trainable
+Connector: trainable if separately available
+~~~
+
+Only the selected trainable parameters are optimizer-updated. If we denote them jointly by $\phi$:
+
+$$
+g_k
+=
+\nabla_\phi
+\mathcal{L}
+\left(
+\theta_0,\phi_k
+\right)
+$$
+
+and an optimizer produces a step such as:
+
+$$
+\phi_{k+1}
+=
+\phi_k-\eta\widehat{g}_k
+$$
+
+where $\widehat{g}_k$ is the optimizer-adjusted update direction. The frozen base state remains:
+
+$$
+\theta_0^{(k+1)}
+=
+\theta_0^{(k)}
+$$
+
+### Common debugging checkpoints
+
+Before claiming a training run is valid, verify:
+
+- The exact multimodal processor and chat template match the selected Qwen checkpoint.
+- Labels align with the **next-token logits** rather than the same-position logits.
+- System and user prompt label positions have the appropriate ignore index.
+- The assistant response and chosen EOS target are actually supervised.
+- The total number of trainable parameters is what we intended.
+- Frozen parameters remain unchanged after an optimizer step.
+- Loss is finite and there is a nonzero gradient on trainable adapters for a nontrivial batch.
+
+### Interview explanation
+
+I would explain a training step as: **I construct a multimodal conversation, tokenize and process the screenshot, include the correct assistant response for teacher-forced training, mask prompt labels, run one causal forward pass, compute assistant-only cross-entropy, backpropagate, and update only the chosen LoRA and other unfrozen parameters.**
+
+
 Consider one labelled example.
 
 ### Step 1 — Load the screenshot
@@ -2072,6 +2188,69 @@ That means batching introduces multiple masking concepts that should not be conf
 
 ## Question 24 — What is the difference between attention masking and loss masking?
 
+### Three masks or restrictions that are easy to mix up
+
+Think about a padded training batch containing two examples:
+
+~~~text
+Example A:
+[USER] [image] [ASSISTANT] Little Content EOS
+
+Example B:
+[USER] [image] [ASSISTANT] Not Little Content EOS PAD PAD
+~~~
+
+In a real Qwen VLM, image representation and padding can be more complex than this illustration.
+
+We must keep three distinct concepts straight.
+
+| Concept | Main question it answers |
+|---|---|
+| Attention validity / padding mask | Which input positions are real rather than padding? |
+| Causal mask | Which future positions must each next-token prediction be unable to see? |
+| Assistant loss mask | Which next-token targets count toward the supervised loss? |
+
+### One token can be attended to but not directly supervised
+
+A user instruction token may have:
+
+~~~text
+attention-validity mask = 1
+assistant loss mask      = 0
+~~~
+
+The model reads it, but we do not score the model on recreating that instruction token.
+
+An assistant target token may have:
+
+~~~text
+attention-validity mask = 1
+assistant loss mask      = 1
+~~~
+
+A padding position may have:
+
+~~~text
+attention-validity mask = 0
+assistant loss mask      = 0
+~~~
+
+The causal mask is applied separately so the model cannot look at future response tokens during training.
+
+### Remember the shift from Question 4
+
+~~~text
+Input position:     ASSISTANT | Little | Content | EOS
+Next-token target:     Little | Content | EOS
+~~~
+
+In common causal-LM APIs, ignored targets are represented by label value -100 and the library may apply the one-token shift internally. Always inspect the training API to avoid accidentally shifting twice or masking the wrong positions.
+
+### Why this matters in practice
+
+A mask error can produce a misleadingly low loss while the model never learns the intended assistant response. Inspect a few processed batches by decoding the non-ignored target labels and checking that they are exactly the intended canonical answers.
+
+
 These masks solve different problems.
 
 ### Attention mask
@@ -2130,15 +2309,78 @@ The training pipeline will explicitly maintain:
 
 ---
 
-### Story Bridge 25 — Part 2 Should End With a Concrete Fine-Tuning Design, Not a List of LoRA Definitions
+### Story Bridge 25 — Part 2B Should End With a Concrete Fine-Tuning Design, Not a List of LoRA Definitions
 
 Part 1 told us why fine-tuning was needed.
 
-Part 2 has now told us how the supervision signal is constructed and where the trainable capacity lives.
+Part 2 explained how the supervision signal is constructed; Part 2B has now shown where the trainable capacity lives.
 
 We should finish by reconstructing the whole training design in one flow.
 
 ## Question 25 — What is the Qwen fine-tuning design after Part 2?
+
+### Rebuild the design from the business task outward
+
+Do not begin an interview by saying "I use LoRA because it is efficient." Begin with the prediction task and make each training choice follow from the previous one.
+
+**Business requirement:** distinguish Little Content from Not Little Content using SERP screenshots, including unseen hosts and layouts.
+
+**Training representation:** screenshot + instruction is conditioning context; canonical class text is the assistant target.
+
+**Supervision:** teacher-forced causal next-token prediction with assistant-only cross-entropy.
+
+**Adaptation:** test a small PEFT configuration first because full multimodal fine-tuning would cost considerably more memory and may not be necessary.
+
+**Validation:** compare quality on the intended classification problem, including unseen hosts and visually difficult pages; track precision, recall and relevant error slices.
+
+**Production implication:** prefer controlled canonical-label scoring and validate thresholds rather than relying on arbitrary free-form generations.
+
+### The full decision chain
+
+~~~text
+Labelled screenshots
+        ↓
+Choose a canonical answer format
+        ↓
+Encode images and tokenize text
+        ↓
+Teacher-forced multimodal causal SFT
+        ↓
+Mask context labels; supervise assistant targets
+        ↓
+Compute mean next-token cross-entropy
+        ↓
+Backpropagate through trainable modules
+        ↓
+Q/V LoRA + optional trainable connector
+        ↓
+Compare with broader PEFT alternatives
+        ↓
+Select using unseen-host validation and cost
+        ↓
+Create controlled class score for serving
+~~~
+
+### Five questions a senior interviewer may ask
+
+**Why not full fine-tuning?** Start with a cheaper, smaller trainable update; escalate if PEFT underfits and we have the data and resources to justify it.
+
+**Why Q/V LoRA?** It is a narrow starting hypothesis. We test broader attention and vision-side adaptation if failure analysis points there.
+
+**How can frozen vision help?** Frozen visual features still enter the forward pass; trainable downstream modules can use them and receive gradient from assistant loss.
+
+**Why generate labels instead of using a classifier head?** Generative labels preserve the model's native multimodal instruction interface; a classifier head remains a legitimate baseline.
+
+**How do you know the adapter improved the actual task?** Compare against a prompt-only baseline and other controlled configurations, with the same data protocol and independent validation slices.
+
+### Reality check on the project build record
+
+The project choices in this study are **theoretical design decisions**. We must not present selected LoRA target modules, exact hyperparameters or hypothetical validation improvements as historical implementation facts without evidence.
+
+### Interview-ready conclusion
+
+I would say: **I frame Little Content detection as supervised multimodal next-token training. The screenshot and instruction provide context; the canonical label provides assistant-only supervision. I then adapt Qwen with a small LoRA-based trainable parameter set while keeping the base model frozen, compare adapter placements using unseen-host validation, and select a controlled class-scoring approach for production.**
+
 
 The theoretical training pipeline is now:
 
