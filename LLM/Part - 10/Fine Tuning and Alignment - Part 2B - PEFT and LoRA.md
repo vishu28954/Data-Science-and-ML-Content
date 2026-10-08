@@ -510,6 +510,141 @@ We now need to derive that update.
 
 ## Question 15 — What is LoRA mathematically?
 
+### Story continuation: a full-size correction is still expensive
+
+Question 14 gave us:
+
+$$
+h=W_0x+\Delta Wx
+$$
+
+If $W_0$ has shape $4096\times4096$, an unrestricted correction $\Delta W$ also has $16{,}777{,}216$ entries. Freezing $W_0$ would not help enough if the new correction were just as expensive to train.
+
+**LoRA's idea:** restrict the update itself so it can be built from two smaller trainable matrices.
+
+### Step 1 — Understand the dimensions, not just the formula
+
+Write the adapter as:
+
+$$
+\Delta W_{\mathrm{LoRA}}=\frac{\alpha}{r}BA
+$$
+
+where:
+
+$$
+A\in\mathbb{R}^{r\times d_{\mathrm{in}}}
+$$
+
+$$
+B\in\mathbb{R}^{d_{\mathrm{out}}\times r}
+$$
+
+Therefore:
+
+$$
+BA\in\mathbb{R}^{d_{\mathrm{out}}\times d_{\mathrm{in}}}
+$$
+
+The correction has the **same shape as the original weight matrix**, but its trainable parts are smaller.
+
+~~~text
+Input x: d_in dimensions
+        ↓
+Matrix A: maps d_in → r
+        ↓
+Small intermediate representation
+        ↓
+Matrix B: maps r → d_out
+        ↓
+Multiply by alpha/r
+        ↓
+Add to frozen W0 x
+~~~
+
+The adapter rank is at most $r$. LoRA does not require the **pretrained matrix** $W_0$ itself to be low-rank; only the learned **change** is constrained.
+
+### Step 2 — A small example you can explain aloud
+
+Suppose:
+
+$$
+W_0\in\mathbb{R}^{4\times4}
+$$
+
+Choose rank:
+
+$$
+r=2
+$$
+
+Then:
+
+$$
+A\in\mathbb{R}^{2\times4}
+$$
+
+and:
+
+$$
+B\in\mathbb{R}^{4\times2}
+$$
+
+For input $x\in\mathbb{R}^{4}$:
+
+$$
+Ax\in\mathbb{R}^{2}
+$$
+
+$$
+B(Ax)\in\mathbb{R}^{4}
+$$
+
+So the result has exactly the shape needed to add it to $W_0x$.
+
+The original $4\times4$ matrix has 16 weights; the two factor matrices also have 16 trainable values in this **tiny** example. Low rank is only parameter-efficient when $r$ is sufficiently small relative to the original layer dimensions. We will quantify that in Question 16.
+
+### Step 3 — Why the adapter can learn
+
+For one example, set:
+
+$$
+h=W_0x+sBAx,
+\qquad
+s=\frac{\alpha}{r}
+$$
+
+Let:
+
+$$
+g=\frac{\partial\mathcal{L}}{\partial h}
+$$
+
+denote the gradient arriving from later layers and assistant-token cross-entropy. With column-vector conventions:
+
+$$
+\frac{\partial\mathcal{L}}{\partial B}
+=
+s\,g\,(Ax)^{\mathsf T}
+$$
+
+$$
+\frac{\partial\mathcal{L}}{\partial A}
+=
+s\,B^{\mathsf T}g\,x^{\mathsf T}
+$$
+
+The chain rule updates $A$ and $B$ while the original $W_0$ remains fixed.
+
+You do **not** need to memorize these derivatives for every interview. You should understand the reason they exist: **the trainable adapter changes the output, so the final loss depends on its parameters.**
+
+### Qwen connection
+
+In the Qwen Little Content project, LoRA can change how a layer transforms its multimodal hidden representations. The pretrained mapping is retained, while a trainable correction can make the correct assistant label more probable.
+
+This is a proposed fine-tuning design, not a claim that a particular Qwen variant has already been trained this way.
+
+
 Consider a pretrained linear transformation:
 
 $$
@@ -627,6 +762,90 @@ Now we should quantify how much smaller it is than a full matrix update.
 
 ## Question 16 — How many trainable parameters does LoRA add?
 
+### Derive the parameter saving before looking at the answer
+
+A full matrix update for:
+
+$$
+W_0\in\mathbb{R}^{d_{\mathrm{out}}\times d_{\mathrm{in}}}
+$$
+
+would need:
+
+$$
+d_{\mathrm{out}}d_{\mathrm{in}}
+$$
+
+trainable values.
+
+LoRA trains matrices $A$ and $B$ instead:
+
+$$
+N_{\mathrm{LoRA}}
+=
+rd_{\mathrm{in}}+rd_{\mathrm{out}}
+$$
+
+The fraction compared with the original matrix size is:
+
+$$
+\rho
+=
+\frac{
+r(d_{\mathrm{in}}+d_{\mathrm{out}})
+}{
+d_{\mathrm{out}}d_{\mathrm{in}}
+}
+$$
+
+For a square layer of width $d$:
+
+$$
+\rho=\frac{2r}{d}
+$$
+
+This makes the trade-off simple: with layer width fixed, doubling rank doubles LoRA parameter count.
+
+### Rank comparison for one 4096 × 4096 projection
+
+| Adaptation | Trainable values |
+|---|---:|
+| Original full matrix | 16,777,216 |
+| LoRA rank 4 | 32,768 |
+| LoRA rank 8 | 65,536 |
+| LoRA rank 16 | 131,072 |
+| LoRA rank 64 | 524,288 |
+
+For rank 8:
+
+$$
+\frac{65{,}536}{16{,}777{,}216}
+\approx0.003906
+$$
+
+or around $0.39\%$ **for this one projection**.
+
+### Important practical qualification
+
+The trainable fraction of a whole Qwen VLM depends on how many layers receive LoRA, which projections are selected, the rank of each adapter, and whether a connector or vision layers are also trainable.
+
+A defensible experiment should report:
+
+~~~text
+Exact adapted modules
++
+adapter rank for each module
++
+total trainable parameter count
++
+total model parameter count
+        ↓
+overall trainable percentage
+~~~
+
+**Interview follow-up:** Why isn't LoRA automatically small at any rank? Because if $r$ becomes large, $r(d_{\mathrm{in}}+d_{\mathrm{out}})$ can approach or even exceed the number of entries in the original matrix.
+
+
 The original matrix has:
 
 $$
@@ -735,6 +954,70 @@ Saying "use LoRA" is not a complete design.
 LoRA rank, scaling, and regularization determine how much task-specific capacity the adapter has and how strongly its update influences the frozen base model.
 
 ## Question 17 — What do LoRA rank, alpha, scaling, and dropout control?
+
+### Think of four separate control knobs
+
+The LoRA update is:
+
+$$
+\Delta W_{\mathrm{LoRA}}
+=
+\frac{\alpha}{r}BA
+$$
+
+But rank, alpha, dropout and initialization do **different jobs**.
+
+| Knob | What it controls | What it does not guarantee |
+|---|---|---|
+| Rank $r$ | Maximum rank and parameter capacity of the update | Higher rank does not guarantee better validation |
+| Alpha $\alpha$ | Scales the adapter contribution under standard $\alpha/r$ scaling | Larger alpha does not simply mean more learned knowledge |
+| LoRA dropout | Regularizes the input to the adapter path during training | Does not replace an adequate validation split |
+| Initialization | Determines the adapter's behavior before learning | Does not ensure the final adapter will generalize |
+
+### Rank and alpha are related but not interchangeable
+
+Suppose rank is 8 and alpha is 16:
+
+$$
+s=\frac{16}{8}=2
+$$
+
+If rank becomes 16 while alpha stays 16:
+
+$$
+s=\frac{16}{16}=1
+$$
+
+The second adapter has **more trainable parameters**, but a different scaling factor. Therefore, changing rank and alpha at the same time makes experiments hard to interpret.
+
+Different LoRA variants may use different scaling rules. The expressions here describe the standard $\alpha/r$ convention used in this Part.
+
+### Why zero initialization does not prevent learning
+
+A common LoRA initialization makes $B$ zero while $A$ is nonzero. Then:
+
+$$
+BA=0
+$$
+
+so initially the model behaves like the pretrained model.
+
+From the derivative discussed in Question 15:
+
+$$
+\frac{\partial\mathcal{L}}{\partial B}
+=
+s\,g\,(Ax)^{\mathsf T}
+$$
+
+This can be nonzero at the beginning, so $B$ starts learning. The initial derivative for $A$ is zero when $B=0$, but once $B$ moves away from zero, $A$ can learn too.
+
+### How to choose these values for our task
+
+Do not invent a final configuration yet. Treat the values as experimental choices. Hold the training data, evaluation slices and training budget fixed where possible, then compare a small set of ranks and scales. Check validation precision/recall, unseen-host performance, training stability and memory.
+
+That is much stronger than saying the defaults worked elsewhere, so we used them here.
+
 
 ### Rank
 
