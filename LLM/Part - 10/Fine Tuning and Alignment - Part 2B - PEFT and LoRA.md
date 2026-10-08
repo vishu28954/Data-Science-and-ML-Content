@@ -2479,6 +2479,35 @@ These belong to later parts rather than being guessed prematurely.
 
 ---
 
+### Qwen Project Application
+
+For the theoretical Little Content project, our current proposed configuration is:
+
+~~~text
+Pretrained Qwen VLM
+        ↓
+Frozen vision encoder initially
+        ↓
+Trainable connector if the architecture exposes one
+        ↓
+Frozen language backbone
+with trainable Q/V LoRA adapters
+        ↓
+Assistant-only SFT for canonical class tokens
+        ↓
+Controlled evaluation on new hosts and layouts
+~~~
+
+Every configuration choice above is a **hypothesis to test**, not a measured production result. The actual Qwen variant, exact processor, training hyperparameters and validation results remain open.
+
+### Design Decision
+
+Our starting decision is to use **generative, teacher-forced assistant-only SFT** with a small LoRA-based trainable set. We retain broader language LoRA, upper-vision PEFT, QLoRA and full fine-tuning as alternatives justified by memory constraints or validation error analysis.
+
+The next study unit will formalize the multimodal chat template, while later training and evaluation units will select exact implementation parameters.
+
+---
+
 # Qwen Project Build Record — After Part 2B (Questions 1–25)
 
 | Design element | Current state | Type |
