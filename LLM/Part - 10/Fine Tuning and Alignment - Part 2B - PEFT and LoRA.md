@@ -1145,6 +1145,76 @@ So target-module selection is itself a model-capacity decision.
 
 ## Question 18 — Which Transformer matrices can receive LoRA adapters?
 
+### Reconnect LoRA to the attention mechanism
+
+From Transformer study, an attention layer forms query, key and value representations:
+
+$$
+Q=XW_Q,\qquad K=XW_K,\qquad V=XW_V
+$$
+
+Then, in simplified single-head notation:
+
+$$
+\operatorname{Attention}(Q,K,V)
+=
+\operatorname{softmax}
+\left(
+\frac{QK^{\mathsf T}}{\sqrt{d_k}}
+\right)V
+$$
+
+Here:
+
+- $Q$ and $K$ influence **which positions attend to which other positions**.
+- $V$ influences **what information is carried forward** after attention weights are computed.
+- $W_O$ mixes the attention outputs before they are passed onward.
+
+### What changes if we attach LoRA to a projection?
+
+Consider the query projection:
+
+$$
+W_Q^{\mathrm{eff}}
+=
+W_Q^{(0)}
++
+\frac{\alpha}{r}B_QA_Q
+$$
+
+The projected queries become:
+
+$$
+Q
+=
+XW_Q^{\mathrm{eff}}
+$$
+
+The original query weights are frozen, but the new adapter term changes the resulting queries. The same principle can apply to keys, values and attention-output projections.
+
+The exact tensor multiplication conventions depend on the implementation; what matters is that the effective linear transformation includes a frozen component plus a low-rank correction.
+
+### Why begin with Q/V adapters?
+
+Q/V is a **small starting hypothesis**, not a universal best practice. It alters how the model forms attention queries and carries values without training every projection.
+
+Broader adaptation can increase capacity:
+
+~~~text
+Q + V adapters
+        ↓
+Q + K + V + O adapters
+        ↓
+Attention + feed-forward adapters
+~~~
+
+A better result from adding modules is meaningful only when the comparison uses the same dataset and evaluation protocol.
+
+### Qwen screenshot intuition
+
+If Qwen fails to use a visual feature that is already represented in its hidden states, adapting language-side attention could help. If the visual pathway fails to extract that feature at all, more language-side LoRA may not solve the problem. That distinction leads to Question 19.
+
+
 Self-attention commonly contains projection matrices:
 
 $$
@@ -1244,6 +1314,78 @@ That means we need to decide whether to adapt:
 
 ## Question 19 — Which VLM components should we freeze or adapt?
 
+### Follow the screenshot through the whole VLM
+
+Our theoretical processing path is:
+
+~~~text
+SERP screenshot
+        ↓
+Vision encoder
+        ↓
+Visual features
+        ↓
+Multimodal connector / projector
+        ↓
+Language-model hidden representations
+        ↓
+Assistant logits
+        ↓
+Little Content / Not Little Content
+~~~
+
+Different Qwen VLM versions can arrange these parts differently. We must inspect the exact selected architecture rather than assume a separate connector always exists.
+
+### Three different reasons an error may happen
+
+Imagine Qwen misclassifies a page consisting mainly of a large empty area and a small login form.
+
+**Possibility A — Vision representation problem:** the image pathway has not preserved a relevant layout detail.
+
+**Possibility B — Vision-to-language alignment problem:** the necessary feature exists, but its integration into language-model hidden states is poor.
+
+**Possibility C — Decision behavior problem:** the representation is available, but the language model applies the Little Content rule incorrectly.
+
+These possibilities motivate different adaptation choices.
+
+| Evidence from validation | Experiment to consider |
+|---|---|
+| Visual evidence looks useful but decision is wrong | Language-side LoRA |
+| Visual features may be useful but poorly mapped | Trainable connector if accessible |
+| Consistent failure on important visual patterns | PEFT on selected vision layers |
+| Broader approaches still underfit and resources permit | Carefully controlled full fine-tuning |
+
+This table gives hypotheses, not a guaranteed diagnosis.
+
+### How can a frozen visual encoder still be useful?
+
+Let:
+
+$$
+v=f_{\theta_v}(I)
+$$
+
+A trainable connector may form:
+
+$$
+u=g_{\phi_c}(v)
+$$
+
+Assistant cross-entropy can update $\phi_c$ through $u$ even if:
+
+$$
+\theta_v^{(k+1)}=\theta_v^{(k)}
+$$
+
+The frozen encoder still extracts visual features on every forward pass. Its weights simply do not update.
+
+### Qwen design decision in plain language
+
+Start with frozen vision features, train a compatible connector if separately exposed, and add a small amount of language-side LoRA. Escalate only if error analysis demonstrates the need.
+
+Do not claim the chosen design has been empirically validated until experiments exist.
+
+
 A simplified multimodal architecture is:
 
 ~~~text
@@ -1339,6 +1481,53 @@ That calls for ablation experiments.
 
 ## Question 20 — How would we decide whether the initial LoRA placement is sufficient?
 
+### Start with a specific failure, not a larger model
+
+Suppose configuration A performs well on screenshots seen during training but often marks **sparse, yet useful** pages as Little Content. We need to decide whether this is caused by training data, thresholding or adapter capacity.
+
+A controlled ablation changes one relevant design choice while holding other major variables steady.
+
+### A practical experiment table
+
+| Experiment | Main change | Why run it |
+|---|---|---|
+| A | Q/V LoRA, frozen vision | Small, inexpensive baseline |
+| B | Q/K/V/O LoRA, frozen vision | Test broader attention adaptation |
+| C | Attention + MLP LoRA, frozen vision | Test larger language-side capacity |
+| D | Language LoRA + selected vision PEFT | Test whether visual adaptation is necessary |
+
+If a separate connector is trainable in one configuration, keep its treatment consistent across the others when isolating the effects of language/vision modules.
+
+### Control the experiment
+
+Keep the following fixed as far as practical:
+
+~~~text
+Train/validation split
+Annotation policy
+Canonical class labels
+Prompt and chat template
+Input-image policy
+Evaluation metric definitions
+Random seeds or repeated-run reporting
+Comparison training budget
+~~~
+
+Some configurations may need separate learning-rate tuning for a fair capability comparison. Report that explicitly instead of pretending every parameter choice was identical.
+
+### What result would justify greater complexity?
+
+Suppose A and C have similar unseen-host precision/recall, but C uses more trainable parameters and memory. Prefer A unless C offers another justified benefit.
+
+If D fixes a reproducible pattern of visual-layout errors **on validation data from unseen hosts**, while maintaining other metrics, then adapting visual layers becomes defensible.
+
+### Interview explanation
+
+I would say: **Adapter placement is a hypothesis. I establish a small baseline, examine which errors it makes, change the adapted modules in controlled ablations and choose using generalization performance as well as compute cost.**
+
+This is an engineering decision—not a popularity contest between LoRA configurations.
+
+
 We can compare controlled variants while keeping the data and evaluation protocol fixed.
 
 ### Configuration A
@@ -1421,6 +1610,71 @@ But every training example still passes through the frozen base network.
 So we need to understand what PEFT saves and what it does not.
 
 ## Question 21 — How does PEFT change training memory and compute?
+
+### Trace exactly what PEFT saves
+
+With full fine-tuning, each selected pretrained parameter may need its weight, gradient and optimizer state.
+
+With LoRA, the pretrained weights still exist but usually do not need optimizer state or trainable weight-gradient storage. Only the adapter and any other unfrozen modules do.
+
+Let:
+
+$$
+P=\text{number of frozen base parameters}
+$$
+
+and:
+
+$$
+p=\text{number of trainable adapter parameters}
+$$
+
+with:
+
+$$
+p\ll P
+$$
+
+For an illustrative FP32 Adam setup, the two optimizer moments scale approximately as:
+
+$$
+M_{\mathrm{moments}}
+\approx 8p
+$$
+
+instead of approximately:
+
+$$
+8P
+$$
+
+This can be a dramatic reduction when $p$ is very small.
+
+### Why does the forward pass not disappear?
+
+~~~text
+Input screenshot
+        ↓
+Frozen vision/language layers
+(still perform their computations)
+        ↓
+Trainable LoRA contribution
+        ↓
+Final prediction
+~~~
+
+The model must still calculate the frozen network's representations, because those representations are part of the prediction.
+
+Backpropagation also needs some intermediate information to update adapters. Freezing the base does not mean training activations shrink in direct proportion to trainable parameter count.
+
+### The interview trap
+
+If someone says that training 1% of the parameters means training is 100 times faster, the explanation is:
+
+> We may save most gradient and optimizer-state memory for the base weights, but forward compute, visual processing and many activation/backward costs remain. Parameter efficiency and end-to-end training speed are not the same quantity.
+
+For our Qwen setup, memory efficiency may make a larger VLM trainable on limited hardware, but the actual throughput must still be measured.
+
 
 With full fine-tuning, conceptually:
 
@@ -1511,6 +1765,65 @@ But the frozen base weights still need to reside in memory.
 If that memory requirement becomes the bottleneck, quantization can be combined with LoRA.
 
 ## Question 22 — What is QLoRA, and when would we use it?
+
+### The problem left over after LoRA
+
+LoRA reduces the number of trainable parameters, but the **frozen base model weights** still occupy memory.
+
+That motivates quantizing the base model.
+
+If a seven-billion-parameter base were stored in 16 bits per parameter:
+
+$$
+M_{\mathrm{base,16bit}}
+\approx
+7\times10^9\times2
+=
+14\ \mathrm{GB}
+$$
+
+At an ideal 4-bit packing cost:
+
+$$
+M_{\mathrm{base,4bit}}
+\approx
+7\times10^9\times0.5
+=
+3.5\ \mathrm{GB}
+$$
+
+These figures are **storage illustrations only**. Real QLoRA memory exceeds ideal packing because of quantization metadata, components stored at higher precision, adapter states, activations and runtime overhead.
+
+### What actually remains trainable?
+
+~~~text
+Quantized base weights
+        ↓
+Frozen
+
+LoRA matrices A and B
+        ↓
+Trainable
+
+Optional separately exposed connector
+        ↓
+Trainable if deliberately selected
+~~~
+
+The quantized base participates in the forward computations, typically using supported higher-precision compute as needed. Its quantized stored values are not directly updated by the optimizer.
+
+### Terms you should recognize
+
+**NF4 (NormalFloat4)** is a 4-bit quantization format designed around the distribution of normally distributed weights. **Double quantization** further compresses quantization constants. **Paged optimizers** are an approach used to manage some memory spikes, although exact support depends on the software stack.
+
+These are QLoRA engineering details, not changes to the teacher-forced SFT loss.
+
+### LoRA versus QLoRA decision
+
+LoRA is a good starting point if the model fits comfortably in training memory. QLoRA is worth evaluating if storing the frozen base is the bottleneck, provided the chosen Qwen VLM, hardware and training libraries support the approach.
+
+QLoRA does not automatically improve model accuracy. We still need to validate quality, speed, numerical stability and component compatibility.
+
 
 QLoRA combines:
 
