@@ -3756,13 +3756,9 @@ $$
 and the optimization becomes:
 
 $$
-\phi^* =
-\operatorname*{arg\,min}_{\phi}
-\mathcal{L}
-\left(
-\theta_0,\phi
-\right)
+\phi^* = \arg\min_{\phi} \mathcal{L} \left( \theta_0, \phi \right)
 $$
+
 
 while the base model is not directly updated.
 
