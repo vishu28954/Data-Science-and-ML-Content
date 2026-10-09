@@ -96,8 +96,7 @@ $$
 For $P=7\times10^9$:
 
 $$
-14\ \mathrm{GB}+28\ \mathrm{GB}+56\ \mathrm{GB}
-=
+14\ \mathrm{GB}+28\ \mathrm{GB}+56\ \mathrm{GB} =
 98\ \mathrm{GB}
 $$
 
