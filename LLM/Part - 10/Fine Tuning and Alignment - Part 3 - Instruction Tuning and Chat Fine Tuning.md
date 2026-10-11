@@ -798,3 +798,674 @@ Prioritize **correct multimodal examples over packing efficiency**. Preserve req
 
 ---
 
+### Story Bridge 11 — Chat Formatting Is Clear for Text. What Changes When the User Attaches an Image?
+
+Our Qwen project is multimodal. The message structure may still look like a conversation, but the processor must also turn screenshot pixels into visual model inputs. This raises a new question: how do image inputs and assistant text targets coexist in one training example?
+
+## Question 11 — How Does Multimodal Instruction Tuning Work?
+
+### Simple intuition
+
+Multimodal instruction tuning teaches a model to follow instructions **using more than one kind of input**. For Qwen, the relevant input is a screenshot together with a written classification request.
+
+The desired assistant response can still be text. We do not need to make the model reproduce the screenshot; we need it to use the screenshot to decide which label to produce.
+
+### The complete input story
+
+~~~text
+Raw screenshot (pixels) ──→ image processor ──→ visual inputs
+                                               |
+Instruction + message roles ──→ chat template ─┤
+                                               ↓
+                                     Qwen multimodal forward pass
+                                               ↓
+                                Next-token predictions for assistant
+                                               ↓
+                                    Assistant-only SFT loss
+~~~
+
+The exact implementation depends on the checkpoint. Some VLMs represent an image with a variable number of visual tokens or patches; others include special placeholders, grid metadata and resolution-specific transformations. These implementation details should not be guessed.
+
+### Conceptual mathematical model
+
+Let $I$ denote the screenshot and $u$ the instruction. Let the image encoder produce visual features:
+
+$$
+v=f_{\theta_v}(I)
+$$
+
+The language-side computation, combined with the model-specific multimodal connection, produces probabilities for the response sequence:
+
+$$
+P_\theta(y\mid I,u)
+=
+\prod_{t=1}^{T}
+P_\theta(y_t\mid I,u,y_{<t}^{\mathrm{true}})
+$$
+
+The supervised token objective remains:
+
+$$
+\mathcal L
+=
+-\sum_{t\in\mathcal T_{\mathrm{assistant}}}
+\log P_\theta(y_t\mid I,u,y_{<t}^{\mathrm{true}})
+$$
+
+Only selected assistant token targets contribute directly to this loss. The image is **conditioning information**, so it can still affect the gradients of trainable modules.
+
+### What the dataset should store versus what the model should receive
+
+| Stage | Representation |
+|---|---|
+| Dataset storage | Screenshot path/bytes, instruction, label and metadata |
+| Model-compatible messages | User message containing text and an image content part |
+| Processor output | Token IDs, image tensors/features and checkpoint-specific metadata |
+| Training labels | Supervised assistant target token IDs and ignored positions |
+| Model output | Logits over vocabulary at prediction positions |
+
+A JSON-style storage record alone does not guarantee that the image was actually included in the model's forward pass.
+
+### Common failure: image forgotten
+
+Imagine an incorrect data collator that builds only text tokens:
+
+~~~text
+User: Classify the attached screenshot.
+Assistant target: Little Content
+~~~
+
+but never loads or passes the image tensor. The training loop could still run, but the model would be learning from **instruction and label frequencies**, not visual evidence.
+
+To detect this, inspect processor outputs and test **image sensitivity**: does changing the screenshot while keeping the instruction fixed change model scores in a meaningful, task-relevant way? The test must be designed carefully; score changes alone do not prove correct grounding.
+
+### Another failure: wrong resizing or cropping
+
+A low-content decision can depend on the relative layout of page elements. A crop that removes the main content panel can turn a normal page into an apparently empty one. Resizing may also make small text unreadable.
+
+Therefore image preprocessing is part of model quality, not just data plumbing.
+
+### Qwen Project Application
+
+Use the checkpoint's supported multimodal chat-message format and processor. Keep the output restricted to canonical class labels. Confirm that visual inputs reach Qwen and remain aligned with the correct sample and assistant target.
+
+### Design Decision — Q11
+
+Select the exact Qwen VLM checkpoint first, then implement its documented processor and check image dimensions, aspect ratio, special markers, visual metadata and token-label alignment using real samples.
+
+### Project Build Record Update — Q11
+
+| Element | Proposed state | Type |
+|---|---|---|
+| Input modalities | Screenshot + instruction | Existing Design Decision |
+| Image processing | Must use checkpoint-compatible processor | Design Decision |
+| Image resolution / patch behavior | Not specified until checkpoint inspection | Open Question |
+| Output modality | Canonical assistant text class label | Existing Design Decision |
+
+---
+
+### Story Bridge 12 — Correct Formatting Does Not Guarantee the Model Learns the Right Decision Rule
+
+Even a perfectly encoded screenshot and correct loss function can train a poor classifier if examples are mislabeled, repetitive, imbalanced, or unrepresentative of production.
+
+We now need to examine the *information content* of the dataset.
+
+## Question 12 — How Do Data Quality, Diversity and Dataset Mixtures Affect Instruction Tuning?
+
+### First intuition
+
+A model learns patterns from the examples we show it. If the examples teach incorrect patterns, the model can become excellent at repeating those mistakes.
+
+Three important dataset properties are:
+
+- **Quality:** Are labels, images and response formats correct?
+- **Diversity:** Do examples represent the actual variations the system will encounter?
+- **Mixture:** What proportion of training examples comes from different tasks, classes or sources?
+
+### Example: a model memorizes page templates
+
+Suppose our training data contains thousands of near-identical screenshots from a handful of hosts. Randomly splitting individual screenshots might place the same layout in training and evaluation.
+
+Qwen could seem accurate simply because it has already seen similar templates. That is not evidence that it generalizes to new hosts.
+
+In an appropriate evaluation design, group related screenshots, hosts or templates to prevent misleading overlap. The exact grouping should reflect the deployment question.
+
+### Example: inconsistent supervision
+
+Consider the same screenshot receiving different labels:
+
+~~~text
+Screenshot X → Little Content
+Screenshot X → Not Little Content
+~~~
+
+Some annotation disagreements may be legitimate consequences of an unclear policy. We should resolve or characterize them; training harder does not fix contradictory supervision.
+
+### Numerical example: why class balance matters
+
+Suppose 90% of a dataset is Not Little Content and 10% is Little Content.
+
+A classifier that always predicts Not Little Content has:
+
+$$
+\mathrm{Accuracy}=0.90
+$$
+
+Yet its recall on the Little Content class is zero:
+
+$$
+\mathrm{Recall}_{+}=\frac{TP}{TP+FN}=0
+$$
+
+This is why accuracy alone cannot determine success. Depending on the real business goal, precision, recall, false-positive rate and calibration are important.
+
+### The mixture question
+
+If we combine:
+
+~~~text
+80% general chat instructions
+15% broad image question answering
+ 5% SERP screenshot classification
+~~~
+
+we may teach broader assistant behavior, but the precise Little Content behavior could be underrepresented. Conversely, training only on the narrow task may make the model highly specialized but gives less practice with varied natural-language requests.
+
+**This ratio is illustrative, not an advised recipe.**
+
+### Data weighting: how sampling changes learning
+
+Let group $k$ have dataset distribution $\mathcal D_k$ and sampling weight $w_k$, with $\sum_k w_k=1$.
+
+A mixture objective is:
+
+$$
+\mathcal L_{\mathrm{mix}}
+=
+\sum_{k=1}^{K}
+w_k
+\mathbb E_{(x,y)\sim\mathcal D_k}
+[\mathcal L_\theta(x,y)]
+$$
+
+Changing $w_k$ changes which examples contribute more often or more strongly to training. A larger weight is not always better; noisy or duplicated sources can become overrepresented.
+
+### Qwen Project Application
+
+Start with accurately labelled SERP screenshots representing sparse useful pages, login-dominant pages, navigation-heavy sites, novel templates and different content densities. Document class proportions and human-review consistency. A mixture of other instruction tasks should be added only if a clear evaluation need justifies it.
+
+### Design Decision — Q12
+
+Prioritize data quality, hard negatives and diversity of hosts/layouts over adding large volumes of redundant screenshots. Record dataset-source mixtures rather than relying on an undocumented blend.
+
+### Project Build Record Update — Q12
+
+| Element | Proposed state | Type |
+|---|---|---|
+| Hard negatives | Sparse-but-useful pages must be represented | Design Decision |
+| Class/source mixture | Record and evaluate empirically | Open Question |
+| Leakage controls | Host/template overlaps require audit | Design Decision |
+
+---
+
+### Story Bridge 13 — If We Train on One Set of Instructions, Will Qwen Handle New Wording?
+
+We now have clean data with valid chat formatting. But training on the sentence "Classify this screenshot" does not prove the model will behave correctly when the request is phrased differently.
+
+The next challenge is **generalization beyond memorized examples and prompts**.
+
+## Question 13 — How Does Instruction Tuning Generalize to Unseen Instructions?
+
+### Simple intuition
+
+We want the model to learn the **task relationship** rather than memorize one exact sentence.
+
+For instance, these requests should usually call for the same behavior:
+
+~~~text
+Classify this SERP screenshot.
+Does this screenshot violate the Little Content policy?
+Use the allowed label to assess this search-result page.
+~~~
+
+But they are not necessarily equivalent unless the policy and required response are held constant.
+
+### How generalization may happen
+
+A pretrained model already has broad linguistic representations. Supervised examples can connect varied instruction phrasings to desired behavior. That transfer can work because related instructions may activate useful pretrained features.
+
+However, the training objective does not prove that the model has learned a perfect abstract notion of "following any instruction". We need tests on **unseen paraphrases and genuinely different inputs**.
+
+### A controlled evaluation design
+
+Create two independent variations:
+
+1. **Screenshot variation:** new hosts/layouts with the same canonical instruction.
+2. **Instruction variation:** previously unseen paraphrases on held-out screenshots.
+
+Then compare four conditions:
+
+| Condition | Instruction | Screenshot |
+|---|---|---|
+| A | Seen wording | Seen-like layout |
+| B | New wording | Seen-like layout |
+| C | Seen wording | New host/layout |
+| D | New wording | New host/layout |
+
+A model might pass B but fail C, meaning it understands alternate wording but not unfamiliar visual layouts. Or it might pass C but fail B, revealing instruction sensitivity.
+
+### Why pure paraphrase augmentation can mislead
+
+If every paraphrase subtly suggests the answer, the model can learn lexical shortcuts. If we generate dozens of nearly identical prompts, the extra volume may contribute little genuinely new information.
+
+Instruction diversity should preserve the **same task definition and target meaning**.
+
+### Qwen Project Application
+
+Because production may use a fixed instruction, broad conversational paraphrase robustness may be a secondary objective. We should still test a few safe reformulations, but not sacrifice binary classification quality to optimize for arbitrary chat flexibility without a product need.
+
+### Design Decision — Q13
+
+Evaluate task generalization separately across **unseen screenshots** and **unseen instructions**. Do not conflate robust language following with robust visual classification.
+
+### Project Build Record Update — Q13
+
+| Element | Proposed state | Type |
+|---|---|---|
+| Primary generalization | Unseen SERP hosts and layouts | Design Decision |
+| Secondary generalization | Controlled instruction paraphrases | Design Decision |
+| Robustness on unseen prompts | Must be measured | Open Question |
+
+---
+
+### Story Bridge 14 — Suppose Training Runs Successfully But the Model Behaves Strangely. Where Could the Error Be?
+
+By now, we have multiple distinct stages: dataset construction, message roles, chat template, image processing, token IDs, masked labels, training and evaluation.
+
+Failures may arise at *any* of these stages. We should diagnose them systematically rather than immediately changing LoRA rank or training for more epochs.
+
+## Question 14 — What Are Common Failures in Chat Fine-Tuning, and How Do We Debug Them?
+
+### A practical failure map
+
+| Observed failure | Plausible root causes | First checks |
+|---|---|---|
+| Assistant repeats user instruction | Wrong roles or loss masking | Inspect decoded supervised labels |
+| Assistant outputs long paragraphs instead of class | Inconsistent targets; unconstrained decoding | Check label strings and candidate scoring |
+| Model never ends response | Wrong or unsupervised turn ending | Inspect end-marker targets and stopping config |
+| Loss looks excellent but classification is poor | Label leakage, wrong image pairing, overfitting | Verify raw images and independent test data |
+| Different output at train vs inference | Different chat templates or image processing | Compare processor paths |
+| Model predicts one class constantly | Class imbalance, shortcut learning, scoring | Confusion matrix and per-class metrics |
+| Multi-turn history ignored | Relevant context truncated or improperly encoded | Decode whole retained sequence |
+| Packed samples interfere | Cross-example attention leakage | Inspect packing and isolation behavior |
+| Screenshot seems irrelevant | Missing image tensor or wrong preprocessing | Confirm visual inputs and run image-swap diagnostics |
+
+### A debugging sequence that avoids random guessing
+
+**Step 1 — Verify one raw example.**
+
+Open the screenshot, read its true label, inspect the instruction and verify that they all correspond to the same sample.
+
+**Step 2 — Verify the serialized representation.**
+
+Render the checkpoint-compatible conversation. Confirm the expected roles, assistant-start marker and image content part are present.
+
+**Step 3 — Verify labels and masking.**
+
+Decode the positions with non-ignored labels and check that they correspond to the canonical assistant response and intended turn ending. Confirm the training implementation does not shift targets twice.
+
+**Step 4 — Verify that image information enters the model.**
+
+Inspect processor outputs, any image batch tensors and checkpoint-required visual metadata. If possible, compare model responses when the image changes but the text remains constant. Interpret results using a controlled sample set.
+
+**Step 5 — Verify a small optimization run.**
+
+On a tiny, internally consistent set, check that trainable LoRA parameters receive nonzero gradients and the intended training loss can decline. A tiny-set overfit test is a **pipeline debugging technique**, not evidence of generalization.
+
+**Step 6 — Verify actual task performance.**
+
+Test on genuinely held-out hosts/layouts, calculate confusion matrices and inspect the false positives or false negatives that matter most. Revisit capacity and training hyperparameters only after data and formatting errors are ruled out.
+
+### A deceptively easy bug: double application of the chat template
+
+If stored training text already includes message markers and the data loader adds the template again, the model receives duplicated or conflicting delimiters.
+
+Prevent this by defining whether the dataset stores **structured messages** or **already serialized content**, and applying the appropriate processor path **exactly once**.
+
+### Qwen Project Application
+
+If our proposed Qwen classifier predicts Little Content even for a visually rich screenshot, first verify it actually receives the image and that the allowed label sequences are scored consistently. Do not assume the problem is a weak visual encoder before ruling out data-path errors.
+
+### Design Decision — Q14
+
+Include dataset audits, decoded-token inspections, masked-label checks, tiny-batch training tests and held-out evaluation in the implementation checklist before tuning model capacity.
+
+### Project Build Record Update — Q14
+
+| Element | Proposed state | Type |
+|---|---|---|
+| Formatting smoke tests | Required before full training | Design Decision |
+| Tiny-batch overfit test | Debugging only, not final evidence | Design Decision |
+| Task-level evaluation and error slices | Required for claims about improvement | Design Decision |
+
+---
+
+### Story Bridge 15 — We Understand Each Piece. Can We Assemble One Correct End-to-End Qwen Example?
+
+We have studied the purpose of instruction tuning, the message roles, the template, token targets, multimodal processing, and data-quality risks.
+
+The final question asks us to turn these separate ideas into one **coherent training-data design** for the theoretical project. This is where we record the decisions and the unresolved details together.
+
+## Question 15 — How Would We Build an Instruction-Tuning Dataset for Qwen Little Content Detection?
+
+### The goal
+
+Build labelled screenshot examples that can be processed by a selected Qwen VLM and used for supervised, assistant-target training. The model should output one of two canonical class labels when given a screenshot and classification instruction.
+
+**We are designing a pipeline; no code is claimed to have been deployed or validated here.**
+
+### Step 1 — Define the user-facing classification behavior
+
+~~~text
+Input:
+    Screenshot of a search-result page
+    Classification instruction
+
+Output:
+    Little Content
+        OR
+    Not Little Content
+~~~
+
+Do not allow the training label policy to shift silently between annotators or dataset batches.
+
+### Step 2 — Store raw examples separately from the model-formatting layer
+
+A proposed conceptual record is:
+
+~~~json
+{
+  "example_id": "SERP_00042",
+  "image_ref": "screenshots/SERP_00042.png",
+  "label": "Not Little Content",
+  "instruction_template_id": "LC_V1",
+  "host_group": "example.test",
+  "annotation_status": "reviewed"
+}
+~~~
+
+The file reference, host and ID are **illustrative**, not actual project data. The host should be treated as metadata for audits and evaluation grouping unless it is intentionally approved as an inference feature.
+
+### Step 3 — Construct messages with the correct roles
+
+Conceptual data representation:
+
+~~~text
+System:
+    You are a SERP Little Content classifier.
+    Return exactly one of the two approved class labels.
+
+User:
+    Classify the attached screenshot according to the policy.
+    [actual image content]
+
+Assistant target:
+    Not Little Content
+~~~
+
+The screenshot must be passed in the image content structure expected by the selected Qwen processor. A plain text string saying "[actual image content]" is not a substitute for an image tensor.
+
+### Step 4 — Apply the correct checkpoint processor
+
+~~~text
+Structured conversation + screenshot bytes
+              ↓
+Official model-compatible chat template
+              +
+        Image processor
+              ↓
+  Token IDs + visual model inputs
+              ↓
+        Causal Qwen VLM
+~~~
+
+Exact Qwen model name, special token IDs and pixel/grid requirements cannot be settled without first choosing and inspecting the checkpoint.
+
+### Step 5 — Construct the supervised labels
+
+The system instruction and user request are conditioning context. We generally calculate direct loss on the assistant class response and its intended ending.
+
+Consider a **fictional** tokenizer in which "Not Little Content" splits into three tokens:
+
+~~~text
+Prefix (context):  system + user + assistant-start
+Target sequence:   Not  Little  Content  END_TURN
+Loss applies to:   Not  Little  Content  END_TURN
+~~~
+
+We must not assume that these are the actual Qwen tokens or that the response has exactly four tokens.
+
+With mask $m_t$:
+
+$$
+\mathcal L
+=
+-\frac{\sum_t m_t\log P_\theta(z_t\mid z_{<t},I)}
+{\sum_t m_t}
+$$
+
+### Step 6 — Apply the parameter-update design from Part 2B
+
+Once the training batch is correct, we can use the already proposed LoRA baseline:
+
+~~~text
+Frozen pretrained model
+    +
+Trainable language-side LoRA on selected Q/V modules
+    +
+Potential trainable connector if separable and justified
+    ↓
+Assistant-token SFT loss
+    ↓
+Gradients update only allowed trainable parameters
+~~~
+
+This section does **not** choose the final rank, alpha, dropout, optimizer or learning rate. Those are separate engineering decisions planned for later chapters.
+
+### Step 7 — Define trustworthy evaluation
+
+At minimum, compare:
+
+- A prompt-only Qwen baseline versus a fine-tuned candidate.
+- Performance on the two canonical classes using task metrics, not merely token loss.
+- False-positive errors on sparse-but-useful pages.
+- Unseen-host and unusual-layout slices.
+- Effect of changes to instruction wording.
+- Memory and latency implications of the chosen adaptation.
+
+Decision thresholds and calibration are part of later evaluation/serving design; they must be fitted on validation data rather than inferred from training loss.
+
+### Step 8 — Check input/output consistency before training
+
+**Minimal smoke-test record:**
+
+| Check | Why it matters |
+|---|---|
+| Screenshot decodes and matches human label | Prevents visual label corruption |
+| Correct Qwen processor produces the image inputs | Ensures a real multimodal forward pass |
+| Message roles and template are correct | Prevents the model learning the wrong sequence |
+| Correct assistant tokens are unmasked | Ensures direct target supervision |
+| End-of-turn target is intentional | Prevents malformed stopping behavior |
+| Frozen base and trainable LoRA sets are as intended | Prevents accidental full fine-tuning |
+| Tiny-batch loss and gradients behave sensibly | Confirms training wiring |
+| Held-out images have no inappropriate overlap | Protects evaluation integrity |
+
+### Qwen Project Application — Final integration
+
+The complete proposed path is:
+
+~~~mermaid
+flowchart TD
+    A["Human-labelled SERP screenshot"] --> B["Raw sample with label + audit metadata"]
+    B --> C["Structured system/user/assistant messages"]
+    C --> D["Checkpoint-compatible chat template + image processor"]
+    D --> E["Token IDs and visual inputs"]
+    E --> F["Teacher-forced Qwen forward pass"]
+    F --> G["Assistant-target masked token loss"]
+    G --> H["Backpropagation through trainable LoRA/connector"]
+    H --> I["Candidate checkpoint"]
+    I --> J["Held-out host/layout evaluation"]
+    J --> K["Decision on quality, cost and next experiments"]
+~~~
+
+The Mermaid diagram is **a proposed learning and engineering architecture**, not a documented production pipeline.
+
+### Design Decision — Q15
+
+Adopt structured multimodal examples, canonical label targets, checkpoint-compatible templating, assistant-only SFT, and a modest LoRA starting configuration for experimentation. Do not commit to exact model-dependent details until we have evidence from the chosen Qwen checkpoint.
+
+### Project Build Record Update — Q15
+
+| Element | Proposed state | Type |
+|---|---|---|
+| Training-data interface | Screenshot + instruction → one canonical class label | Design Decision |
+| Raw record versus processed batch | Separate clearly | Design Decision |
+| Input formatting | Exact Qwen processor/chat template to be used | Design Decision |
+| Exact checkpoint and hyperparameters | Not yet selected | Open Question |
+| End-to-end training run and observed performance | Not established | Open Question |
+
+---
+
+# Qwen Project Build Record — After Part 3
+
+This record is cumulative. It includes earlier Part 2/2B assumptions and the new instruction/chat-tuning decisions. **Resume Fact** means the project description asserts it; it does not independently verify experimental configuration or outcomes.
+
+| Design element | Current state | Type |
+|---|---|---|
+| Business problem | Identify Little Content SERP screenshots | Resume Fact |
+| Model family | Qwen Vision-Language Model | Resume Fact |
+| Training input type | Labelled Bing SERP screenshots | Resume Fact |
+| Described processing scale | Approximately 50K URLs/day | Resume Fact |
+| Chosen learning formulation | Generative supervised classification | Design Decision |
+| Desired response | Canonical Little Content / Not Little Content label | Design Decision |
+| Loss | Causal assistant-target cross-entropy | Design Decision |
+| Teacher forcing | Correct previous assistant target tokens used in training | Design Decision |
+| Prompt and screenshot | Conditioning information; not direct target-text loss | Design Decision |
+| Adaptation starting point | PEFT with LoRA | Design Decision |
+| Frozen pretrained language weights | Proposed initial configuration | Design Decision |
+| Frozen visual encoder | Proposed initial configuration | Design Decision |
+| Initial language-side LoRA targets | Query and Value projection candidates | Design Decision |
+| Optional multimodal connector | Trainable if architecture supports and validation justifies | Design Decision |
+| QLoRA | Alternative if base model weight memory is limiting | Design Decision |
+| Instruction formulation | Explicit task policy and canonical output constraints | Design Decision |
+| Raw data schema | Image reference, label, instruction ID, audit/group metadata | Design Decision |
+| Message roles | System/instruction, user/screenshot, assistant/label | Design Decision |
+| Chat template | Checkpoint-compatible implementation; not hand-guessed | Design Decision |
+| Special tokens / generation prefix | Inspect selected checkpoint | Open Question |
+| Image preprocessing | Use checkpoint-compatible multimodal processor | Design Decision |
+| Exact Qwen checkpoint | Not selected | Open Question |
+| Exact image resolution / patch handling | Not selected | Open Question |
+| Multi-turn data | Not needed in initial binary-classifier dataset | Design Decision |
+| Truncation | Preserve image/instruction and selected assistant targets | Design Decision |
+| Packing | Do not enable without tested multimodal isolation/support | Design Decision |
+| Dataset quality checks | Pairing, annotation agreement, duplicates and leakage audits | Design Decision |
+| Generalization checks | New hosts/layouts plus controlled prompt paraphrases | Design Decision |
+| Tiny-batch / loss-mask smoke tests | Required before scaled training | Design Decision |
+| Exact LoRA rank, alpha and dropout | Not chosen | Open Question |
+| Optimizer, LR, scheduler, batch size, epochs | Deferred training-engineering decisions | Open Question |
+| Data splitting and sampling weights | Exact choices not established | Open Question |
+| Inference threshold and calibration | Deferred evaluation decisions | Open Question |
+| Production serving architecture | Not established in this theoretical design | Open Question |
+| Empirical improvements from proposed configuration | No experiment results established | Open Question |
+
+---
+
+# Part 3 — Key Equations and What They Mean
+
+## Instruction-conditioned likelihood
+
+$$
+P_\theta(y\mid u,I)
+=
+\prod_{t=1}^{T}P_\theta(y_t\mid u,I,y_{<t}^{\mathrm{true}})
+$$
+
+$u$ is the request; $I$ is the screenshot; $y$ is the intended answer sequence.
+
+## Assistant-only masked loss
+
+$$
+\mathcal L
+=
+-\frac{\sum_t m_t\log P_\theta(z_t\mid z_{<t},I)}
+{\sum_t m_t}
+$$
+
+$m_t=1$ for supervised assistant targets and $0$ for ignored positions. The screenshot can influence all supervised probabilities even though it does not carry a direct text-token target.
+
+## Dataset-mixture objective
+
+$$
+\mathcal L_{\mathrm{mix}}
+=
+\sum_{k=1}^{K}w_k
+\mathbb E_{(x,y)\sim\mathcal D_k}[\mathcal L_\theta(x,y)],
+\qquad
+\sum_{k=1}^{K}w_k=1
+$$
+
+$w_k$ changes the contribution of task/data source $k$; it does not guarantee better downstream performance.
+
+## Precision and recall
+
+$$
+\mathrm{Precision}=\frac{TP}{TP+FP},
+\qquad
+\mathrm{Recall}=\frac{TP}{TP+FN}
+$$
+
+These task metrics are different from next-token training loss.
+
+---
+
+# Part 3 — Final Mental Model
+
+~~~text
+TASK POLICY
+What does the class label mean?
+        ↓
+RAW EXAMPLES
+Image, label, audit metadata
+        ↓
+INSTRUCTION + ROLES
+System / user / assistant
+        ↓
+CHECKPOINT CHAT TEMPLATE + IMAGE PROCESSOR
+Messages → token IDs + visual inputs
+        ↓
+LOSS-LABEL CONSTRUCTION
+Assistant targets unmasked
+        ↓
+TEACHER-FORCED SFT
+Cross-entropy for the allowed label response
+        ↓
+LoRA / TRAINABLE MODULES
+Only intended parameters update
+        ↓
+EVALUATION
+New hosts, new layouts, robust class scoring
+~~~
+
+**One-line summary:**
+
+> **Part 2 established how supervised tokens create a training signal; Part 3 establishes how correct instructions, messages, images and masks create the right supervised tokens in the first place.**
+
+---
+
+# Bridge to Part 4 — Preference Optimization
+
+We have now taught Qwen using examples of **correct target responses**. But what if the desired behavior cannot easily be represented by one objectively correct answer? In some tasks, humans can say which of two responses they prefer even if neither is the unique correct response.
+
+That motivates preference datasets, reward models, RLHF and DPO, which belong to the next unit—not this chapter.
+
+**This chapter ends here at Question 15.** Further training hyperparameters and production evaluation remain in their designated later modules.
