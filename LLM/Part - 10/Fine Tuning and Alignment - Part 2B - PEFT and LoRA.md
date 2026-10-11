@@ -970,20 +970,14 @@ The **rank is 8 because the middle adapter representation has eight values**. It
 For this illustrative 4096-by-4096 projection:
 
 $$
-N_{\mathrm{LoRA}}
-=
-8\times4096+4096\times8
-=
+N_{\mathrm{LoRA}} = 8\times4096+4096\times8 =
 65{,}536
 $$
 
 By comparison, the original projection contains:
 
 $$
-N_{\mathrm{full}}
-=
-4096\times4096
-=
+N_{\mathrm{full}} = 4096\times4096 =
 16{,}777{,}216
 $$
 
@@ -992,10 +986,8 @@ So the adapter has far fewer **trainable** parameters, while the full frozen pro
 If we change to rank 64, the middle path becomes **64 values wide**, and the adapter contains:
 
 $$
-N_{\mathrm{LoRA},r=64}
-=
-64\times4096+4096\times64
-=
+N_{\mathrm{LoRA},r=64} =
+64\times4096+4096\times64 =
 524{,}288
 $$
 
@@ -1022,16 +1014,14 @@ trainable values.
 LoRA trains matrices $A$ and $B$ instead:
 
 $$
-N_{\mathrm{LoRA}}
-=
+N_{\mathrm{LoRA}} =
 rd_{\mathrm{in}}+rd_{\mathrm{out}}
 $$
 
 The fraction compared with the original matrix size is:
 
 $$
-\rho
-=
+\rho =
 \frac{
 r(d_{\mathrm{in}}+d_{\mathrm{out}})
 }{
