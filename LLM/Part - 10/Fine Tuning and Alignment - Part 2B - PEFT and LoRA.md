@@ -1814,32 +1814,23 @@ Assume, **only for calculation**, that 20 blocks each have square Q, K, V and O 
 One adapted projection requires:
 
 $
-N_{\mathrm{one}}
-=
-r(d_{\mathrm{in}}+d_{\mathrm{out}})
-=
-8(4096+4096)
-=
+N_{\mathrm{one}} = r(d_{\mathrm{in}}+d_{\mathrm{out}}) = 8(4096+4096) =
 65{,}536
 $
 
 If we adapt Q and V in all 20 blocks:
 
 $
-N_{\mathrm{QV}}
-=
-20\times2\times65{,}536
-=
+N_{\mathrm{QV}} =
+20\times2\times65{,}536 =
 2{,}621{,}440
 $
 
 If we instead adapt Q, K, V and O in all 20 blocks:
 
 $
-N_{\mathrm{QKVO}}
-=
-20\times4\times65{,}536
-=
+N_{\mathrm{QKVO}} =
+20\times4\times65{,}536 =
 5{,}242{,}880
 $
 
@@ -1848,10 +1839,8 @@ So expanding from Q/V to Q/K/V/O **doubles adapter parameters for these projecti
 Now keep Q/V placement but increase rank from 8 to 16:
 
 $
-N_{\mathrm{QV},r=16}
-=
-20\times2\times16(4096+4096)
-=
+N_{\mathrm{QV},r=16} =
+20\times2\times16(4096+4096) =
 5{,}242{,}880
 $
 
