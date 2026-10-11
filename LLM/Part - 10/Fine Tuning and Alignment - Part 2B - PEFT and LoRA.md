@@ -1686,17 +1686,17 @@ Inspect the actual checkpoint modules before specifying target names such as q_p
 
 For one linear projection, use column-vector notation:
 
-$
-h=W_0x+sBAx,\qquad s=\frac{\alpha}{r}
-$
+$$
+h = W_0x + sBAx, \qquad s = \frac{\alpha}{r}
+$$
+
 
 with:
 
-$
-A\in\mathbb R^{r\times d_{\mathrm{in}}},
-\qquad
-B\in\mathbb R^{d_{\mathrm{out}}\times r}
-$
+$$
+A \in \mathbb{R}^{r \times d_{\mathrm{in}}}, \qquad B \in \mathbb{R}^{d_{\mathrm{out}} \times r}
+$$
+
 
 A common LoRA initialization is:
 
@@ -1705,15 +1705,15 @@ A common LoRA initialization is:
 
 Then:
 
-$
+$$
 BA=0
-$
+$$
 
 and the first forward pass is:
 
-$
+$$
 h=W_0x
-$
+$$
 
 So the initial model prediction is unchanged by LoRA, assuming no other modifications to the model.
 
@@ -1730,14 +1730,12 @@ $
 For the simplified single-example layer, the gradients are:
 
 $
-\frac{\partial\mathcal L}{\partial B}
-=
+\frac{\partial\mathcal L}{\partial B} =
 s\,g(Ax)^{\mathsf T}
 $
 
 $
-\frac{\partial\mathcal L}{\partial A}
-=
+\frac{\partial\mathcal L}{\partial A} =
 s\,B^{\mathsf T}gx^{\mathsf T}
 $
 
