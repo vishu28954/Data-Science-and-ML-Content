@@ -810,14 +810,12 @@ $$
 denote the gradient arriving from later layers and assistant-token cross-entropy. With column-vector conventions:
 
 $$
-\frac{\partial\mathcal{L}}{\partial B}
-=
+\frac{\partial\mathcal{L}}{\partial B} =
 s\,g\,(Ax)^{\mathsf T}
 $$
 
 $$
-\frac{\partial\mathcal{L}}{\partial A}
-=
+\frac{\partial\mathcal{L}}{\partial A} =
 s\,B^{\mathsf T}g\,x^{\mathsf T}
 $$
 
