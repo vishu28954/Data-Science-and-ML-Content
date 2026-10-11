@@ -1422,13 +1422,9 @@ $$
 Then, in simplified single-head notation:
 
 $$
-\operatorname{Attention}(Q,K,V)
-=
-\operatorname{softmax}
-\left(
-\frac{QK^{\mathsf T}}{\sqrt{d_k}}
-\right)V
+\text{Attention}(Q, K, V) = \text{softmax} \left( \frac{QK^{\mathsf{T}}}{\sqrt{d_k}} \right) V
 $$
+
 
 Here:
 
@@ -1441,8 +1437,7 @@ Here:
 Consider the query projection:
 
 $$
-W_Q^{\mathrm{eff}}
-=
+W_Q^{\mathrm{eff}} =
 W_Q^{(0)}
 +
 \frac{\alpha}{r}B_QA_Q
@@ -1451,8 +1446,7 @@ $$
 The projected queries become:
 
 $$
-Q
-=
+Q =
 XW_Q^{\mathrm{eff}}
 $$
 
