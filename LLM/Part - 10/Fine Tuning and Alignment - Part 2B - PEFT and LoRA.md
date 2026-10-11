@@ -1189,8 +1189,7 @@ LoRA rank, scaling, and regularization determine how much task-specific capacity
 The LoRA update is:
 
 $$
-\Delta W_{\mathrm{LoRA}}
-=
+\Delta W_{\mathrm{LoRA}} =
 \frac{\alpha}{r}BA
 $$
 
