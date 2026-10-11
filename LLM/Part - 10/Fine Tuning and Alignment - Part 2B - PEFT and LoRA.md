@@ -1092,8 +1092,7 @@ overall trainable percentage
 The original matrix has:
 
 $$
-N_{\mathrm{full}} =
-d_{\mathrm{out}}d_{\mathrm{in}}
+N_{\mathrm{full}} = d_{\mathrm{out}}d_{\mathrm{in}}
 $$
 
 parameters.
@@ -1110,8 +1109,7 @@ $$
 or:
 
 $$
-N_{\mathrm{LoRA}} =
-r
+N_{\mathrm{LoRA}} = r
 \left(
 d_{\mathrm{in}}
 +
@@ -1248,8 +1246,7 @@ so initially the model behaves like the pretrained model.
 From the derivative discussed in Question 15:
 
 $$
-\frac{\partial\mathcal{L}}{\partial B}
-=
+\frac{\partial\mathcal{L}}{\partial B} =
 s\,g\,(Ax)^{\mathsf T}
 $$
 
