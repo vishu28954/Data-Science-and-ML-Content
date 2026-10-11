@@ -1723,21 +1723,21 @@ It looks convenient because the initial correction is also zero, but it creates 
 
 Let:
 
-$
-g=\frac{\partial\mathcal L}{\partial h}
-$
+$$
+g = \frac{\partial\mathcal{L}}{\partial h}
+$$
+
 
 For the simplified single-example layer, the gradients are:
 
-$
-\frac{\partial\mathcal L}{\partial B} =
-s\,g(Ax)^{\mathsf T}
-$
+$$
+\frac{\partial\mathcal{L}}{\partial B} = s \cdot g(Ax)^{\mathsf{T}}
+$$
 
-$
-\frac{\partial\mathcal L}{\partial A} =
-s\,B^{\mathsf T}gx^{\mathsf T}
-$
+$$
+\frac{\partial\mathcal{L}}{\partial A} = s \cdot B^{\mathsf{T}}gx^{\mathsf{T}}
+$$
+
 
 Now compare:
 
@@ -1761,33 +1761,30 @@ If **both** are zero, these gradient expressions are zero; ordinary gradient-bas
 
 Take a rank-1 adapter and a two-dimensional input:
 
-$
-x=\begin{bmatrix}2\\1\end{bmatrix},
-\qquad
-A=\begin{bmatrix}0.1&-0.2\end{bmatrix},
-\qquad
-B=\begin{bmatrix}0\\0\end{bmatrix}
-$
+$$
+x = \begin{bmatrix} 2 \\ 1 \end{bmatrix}, \qquad A = \begin{bmatrix} 0.1 & -0.2 \end{bmatrix}, \qquad B = \begin{bmatrix} 0 \\ 0 \end{bmatrix}
+$$
+
 
 Then:
 
-$
+$$
 Ax=(0.1)(2)+(-0.2)(1)=0
-$
+$$
 
 **Notice the subtlety:** for this *particular example*, $Ax$ happens to equal zero. Therefore this individual example gives a zero gradient to B in the simple formula, even though A is nonzero.
 
 With another input:
 
-$
+$$
 x=\begin{bmatrix}1\\1\end{bmatrix}
-$
+$$
 
 we obtain:
 
-$
+$$
 Ax=-0.1
-$
+$$
 
 If the upstream output gradient $g$ is nonzero, B can now receive a nonzero gradient. This illustrates why random nonzero A makes learning *possible*, but does not guarantee every example contributes a nonzero update.
 
