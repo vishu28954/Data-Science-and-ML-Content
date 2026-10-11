@@ -304,7 +304,7 @@ LoRA has a few settings that control different things. Rank tells us how much ro
 
 ### How it works — step by step
 
-First choose how wide the adapter's middle path should be. Then choose the scaling rule that controls how much its output contributes alongside the frozen layer. Use dropout if regularization is useful. A common starting setup makes the adapter's initial correction zero so that training starts from the pretrained model's behavior.
+First choose how wide the adapter's middle path should be. Then choose the scaling rule that controls how much its output contributes alongsidFe the frozen layer. Use dropout if regularization is useful. A common starting setup makes the adapter's initial correction zero so that training starts from the pretrained model's behavior.
 
 ### Qwen Little Content example
 
@@ -365,10 +365,9 @@ Q=XW_Q,\qquad K=XW_K,\qquad V=XW_V
 $$
 
 $$
-\operatorname{Attention}(Q,K,V)
-=
-\operatorname{softmax}\left(\frac{QK^{\mathsf T}}{\sqrt{d_k}}\right)V
+\text{Attention}(Q, K, V) = \text{softmax}\left(\frac{QK^{\mathsf{T}}}{\sqrt{d_k}}\right)V
 $$
+
 
 We can replace a selected projection with an effective weight:
 
