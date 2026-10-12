@@ -397,18 +397,14 @@ $$
 Model the preferred-outcome probability as:
 
 $$
-P_\phi(y_w\succ y_l\mid x)
-=
+P_\phi(y_w\succ y_l\mid x) =
 \frac{e^{r_w}}{e^{r_w}+e^{r_l}}
 $$
 
 Divide numerator and denominator by $e^{r_w}$:
 
 $$
-P_\phi(y_w\succ y_l\mid x)
-=
-\frac{1}{1+e^{-(r_w-r_l)}}
-=
+P_\phi(y_w\succ y_l\mid x) = \frac{1}{1+e^{-(r_w-r_l)}} =
 \sigma(r_w-r_l)
 $$
 
@@ -417,8 +413,7 @@ where $\sigma(z)=1/(1+e^{-z})$ is the sigmoid function.
 Since the observed label says "$y_w$ wins", negative log-likelihood gives:
 
 $$
-\mathcal L_{\mathrm{RM}}
-=
+\mathcal L_{\mathrm{RM}} =
 -\log\sigma\left(
 r_\phi(x,y_w)-r_\phi(x,y_l)
 \right)
