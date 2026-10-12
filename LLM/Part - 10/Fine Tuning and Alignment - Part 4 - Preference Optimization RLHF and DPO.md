@@ -596,8 +596,7 @@ This is not a perfect safety mechanism and cannot fix a fundamentally broken rew
 For two distributions over possible responses:
 
 $$
-D_{\mathrm{KL}}(P\|Q)
-=
+D_{\mathrm{KL}}(P\|Q) =
 \sum_y P(y)\log\frac{P(y)}{Q(y)}
 $$
 
@@ -627,8 +626,7 @@ $$
 Then:
 
 $$
-D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}})
-=
+D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}}) =
 0.9\ln\frac{0.9}{0.5}
 +
 0.1\ln\frac{0.1}{0.5}
@@ -646,10 +644,7 @@ The policy has changed quite substantially. If both distributions were $(0.5,0.5
 An idealized objective:
 
 $$
-J(\theta)
-=
-\mathbb E_{\pi_\theta}[r(x,y)]
--
+J(\theta) = \mathbb E_{\pi_\theta}[r(x,y)] -
 \beta D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}})
 $$
 
@@ -662,24 +657,16 @@ For larger $\beta$, deviations are penalized more strongly. For smaller $\beta$,
 For an autoregressive response:
 
 $$
-\log\pi_\theta(y\mid x)
-=
-\sum_{t=1}^{T}
-\log\pi_\theta(y_t\mid x,y_{<t})
+\log \pi_\theta(y \mid x) = \sum_{t=1}^{T} \log \pi_\theta(y_t \mid x, y_{\lt t})
 $$
+
 
 A trajectory-level log-ratio relative to the reference can be written:
 
 $$
-\log\frac{\pi_\theta(y\mid x)}{\pi_{\mathrm{ref}}(y\mid x)}
-=
-\sum_{t=1}^{T}
-\log\frac{
-\pi_\theta(y_t\mid x,y_{<t})
-}{
-\pi_{\mathrm{ref}}(y_t\mid x,y_{<t})
-}
+\log \frac{\pi_\theta(y \mid x)}{\pi_{\mathrm{ref}}(y \mid x)} = \sum_{t=1}^{T} \log \frac{\pi_\theta(y_t \mid x, y_{\lt t})}{\pi_{\mathrm{ref}}(y_t \mid x, y_{\lt t})}
 $$
+
 
 This identity helps explain sampled reference penalties. A single sampled log-ratio is **not itself an exact KL divergence**; its expectation under the appropriate policy gives a KL-related quantity.
 
