@@ -609,6 +609,267 @@ KL is:
 - **Not symmetric** in general: $D_{\mathrm{KL}}(P\|Q)$ need not equal $D_{\mathrm{KL}}(Q\|P)$.
 - A measure of distribution mismatch, not the percentage of wrong answers.
 
+### Deep Dive — KL Divergence From First Principles
+
+The brief definition above can feel abstract. To understand it, first forget RLHF and imagine **two models distributing probability across three possible responses**.
+
+#### Step 1 — What is a distribution over responses?
+
+Imagine this prompt:
+
+> Complete the sentence: "The capital of France is ..."
+
+For a deliberately simplified example, suppose we have only three possible responses:
+
+| Response $y$ | Model $P(y)$ | Model $Q(y)$ |
+|---|---:|---:|
+| Paris | $0.80$ | $0.50$ |
+| London | $0.15$ | $0.30$ |
+| Berlin | $0.05$ | $0.20$ |
+| **Total** | **1.00** | **1.00** |
+
+Both distributions are valid: their probabilities sum to 1. Model P puts more probability on Paris, whereas Q spreads more probability to London and Berlin. We want a numerical description of **how different these probability assignments are**.
+
+This tiny table is *only a mathematical teaching example*. An actual language model can assign probability to a huge number of possible token sequences, not just three city names.
+
+#### Step 2 — Read the equation one component at a time
+
+$$
+D_{\mathrm{KL}}(P\|Q)
+=
+\sum_y P(y)\ln\frac{P(y)}{Q(y)}
+$$
+
+| Piece | Plain-language meaning |
+|---|---|
+| $y$ | One possible response |
+| $P(y)$ | Probability that P assigns to that response |
+| $Q(y)$ | Probability that Q assigns to that response |
+| $P(y)/Q(y)$ | How large P's probability is relative to Q's |
+| $\ln(P(y)/Q(y))$ | Logarithm of that probability ratio |
+| $P(y)\times\ln(P(y)/Q(y))$ | Contribution weighted by how likely that response is under P |
+| $\sum_y$ | Add contributions over all possible responses |
+
+Why use a **ratio**? If P assigns Paris probability $0.80$ and Q assigns $0.50$, the ratio is:
+
+$$
+\frac{P(\mathrm{Paris})}{Q(\mathrm{Paris})}
+=
+\frac{0.80}{0.50}=1.6
+$$
+
+P considers that response 1.6 times as likely. For Berlin:
+
+$$
+\frac{P(\mathrm{Berlin})}{Q(\mathrm{Berlin})}
+=
+\frac{0.05}{0.20}=0.25
+$$
+
+P considers that response only one-quarter as likely.
+
+The natural log turns **equal probabilities** into zero because $\ln(1)=0$, ratios above one into positive values, and ratios below one into negative values.
+
+#### Step 3 — Calculate all three contributions
+
+For our distributions:
+
+$$
+D_{\mathrm{KL}}(P\|Q)
+=
+0.80\ln\frac{0.80}{0.50}
++
+0.15\ln\frac{0.15}{0.30}
++
+0.05\ln\frac{0.05}{0.20}
+$$
+
+Compute each response's contribution:
+
+| Response | Calculation | Approximate contribution |
+|---|---|---:|
+| Paris | $0.80\ln(1.6)$ | $+0.376$ |
+| London | $0.15\ln(0.5)$ | $-0.104$ |
+| Berlin | $0.05\ln(0.25)$ | $-0.069$ |
+
+Add them:
+
+$$
+D_{\mathrm{KL}}(P\|Q)
+\approx0.376-0.104-0.069
+\approx0.203
+$$
+
+The result is about **0.203 nats**. "Nats" is simply the unit used when the natural logarithm is chosen.
+
+**Why were some contributions negative?** A response gets a negative contribution whenever P assigns it lower probability than Q. Nevertheless, the *complete sum* is nonnegative for valid distributions. Nonnegativity is a property of the whole expression, not each individual term.
+
+For finite distributions, this standard formula assumes that Q assigns positive probability wherever P assigns positive probability. If $P(y)>0$ and $Q(y)=0$, then $D_{\mathrm{KL}}(P\|Q)$ is infinite under the usual convention. Terms where $P(y)=0$ contribute zero.
+
+#### Step 4 — Why does KL become zero when P and Q match?
+
+Suppose the two models assign exactly the same probabilities:
+
+$$
+P(y)=Q(y)
+$$
+
+For each response with nonzero probability:
+
+$$
+\frac{P(y)}{Q(y)}=1,
+\qquad
+\ln(1)=0
+$$
+
+So every contribution is zero, giving:
+
+$$
+D_{\mathrm{KL}}(P\|Q)=0
+$$
+
+More generally, KL divergence is **zero if and only if the distributions match** (up to probability-zero events under the usual conditions). The greater its value, the greater this particular kind of mismatch; it is **not** a percentage error or a probability that the model is wrong.
+
+#### Step 5 — Why is KL not symmetric?
+
+The two directions weight their responses differently.
+
+$$
+D_{\mathrm{KL}}(P\|Q)
+=
+\sum_y P(y)\ln\frac{P(y)}{Q(y)}
+$$
+
+But reversing the order gives:
+
+$$
+D_{\mathrm{KL}}(Q\|P)
+=
+\sum_y Q(y)\ln\frac{Q(y)}{P(y)}
+$$
+
+In the first expression, **P determines the weighting**; in the second, **Q determines it**.
+
+With our numbers:
+
+$$
+D_{\mathrm{KL}}(P\|Q)\approx0.203
+$$
+
+whereas:
+
+$$
+D_{\mathrm{KL}}(Q\|P)
+=
+0.50\ln\frac{0.50}{0.80}
++
+0.30\ln\frac{0.30}{0.15}
++
+0.20\ln\frac{0.20}{0.05}
+\approx0.240
+$$
+
+The directions differ even though the same two models are involved.
+
+**Mental model:** $D_{\mathrm{KL}}(P\|Q)$ evaluates the mismatch with responses weighted according to P. Reversing to $D_{\mathrm{KL}}(Q\|P)$ changes whose likely responses matter most.
+
+This is why KL divergence is not an ordinary symmetric distance metric.
+
+#### Step 6 — Translate P and Q back to RLHF
+
+Now restore the two actual RLHF roles:
+
+- $\pi_{\mathrm{ref}}(y\mid x)$: frozen reference model's response distribution for prompt $x$.
+- $\pi_\theta(y\mid x)$: updated trainable policy's response distribution for the same prompt.
+
+For example, suppose the reference and updated policy assign the following probabilities to **three illustrative response styles**:
+
+| Response style | Frozen reference | Updated policy |
+|---|---:|---:|
+| Concise and accurate | $0.60$ | $0.85$ |
+| Detailed and accurate | $0.30$ | $0.10$ |
+| Incorrect or misleading | $0.10$ | $0.05$ |
+
+The updated model has become more likely to give a concise answer and less likely to give a detailed one. KL can quantify that probability-distribution shift, **but it cannot tell us whether the shift is a good one**. We still need accuracy, helpfulness and task-specific evaluation.
+
+Real LLMs do not directly have these three discrete style categories in their output vocabulary; this is a coarse illustration of full-response behavior.
+
+#### Step 7 — Why are full-response probabilities related to token probabilities?
+
+An autoregressive model constructs each response one token at a time:
+
+$$
+\pi_\theta(y\mid x)
+=
+\prod_{t=1}^{T}\pi_\theta(y_t\mid x,y_{<t})
+$$
+
+Taking logs turns that product into a sum:
+
+$$
+\log\pi_\theta(y\mid x)
+=
+\sum_{t=1}^{T}
+\log\pi_\theta(y_t\mid x,y_{<t})
+$$
+
+Consequently, the log ratio between updated and reference policies is:
+
+$$
+\log\frac{\pi_\theta(y\mid x)}{\pi_{\mathrm{ref}}(y\mid x)}
+=
+\sum_{t=1}^{T}
+\log
+\frac{
+\pi_\theta(y_t\mid x,y_{<t})
+}{
+\pi_{\mathrm{ref}}(y_t\mid x,y_{<t})
+}
+$$
+
+An exact KL divergence over **all possible complete responses** is generally too expensive to enumerate, so practical RLHF systems use sampled or token-level calculations and estimators.
+
+A **single sampled response log ratio is not itself the exact KL divergence**. For the forward KL convention, its expectation under the updated policy yields the sequence-level KL (when the distributions satisfy the required support conditions).
+
+#### Step 8 — Why RLHF subtracts a KL penalty
+
+A reward model might encourage an update to make replies extremely short or overly confident. Optimizing only the learned reward could push the policy far away from its original response distribution, potentially exploiting reward-model weaknesses.
+
+A common idealized objective is:
+
+$$
+J(\theta)
+=
+\mathbb E_{\pi_\theta}[r(x,y)]
+-
+\beta
+D_{\mathrm{KL}}
+\left(
+\pi_\theta(\cdot\mid x)
+\|
+\pi_{\mathrm{ref}}(\cdot\mid x)
+\right)
+$$
+
+The first term encourages higher-scoring responses. The second discourages large reference-relative distribution shifts.
+
+- **Smaller $\beta$:** weaker penalty, more freedom to change.
+- **Larger $\beta$:** stronger penalty, more pressure to remain close to the reference.
+
+A KL constraint **cannot guarantee factual accuracy or safety**, and restricting drift is not always desirable if the reference behavior needs substantial improvement.
+
+### Three Concepts That Must Stay Separate
+
+| Quantity | Main question |
+|---|---|
+| SFT cross-entropy | How likely is the designated correct target? |
+| Reward score | How desirable is a response according to the reward system? |
+| KL divergence | How different is the new policy's response distribution from the reference? |
+
+**Final intuition:** A reward model expresses a direction we would like to improve; KL regularization discourages changing the whole probability distribution too drastically while pursuing that direction.
+
+---
+
 ### Numerical example with two response choices
 
 Imagine the reference model gives two candidate responses equal probability:
