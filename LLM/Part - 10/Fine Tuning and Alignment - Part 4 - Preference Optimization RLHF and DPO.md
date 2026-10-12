@@ -1089,3 +1089,749 @@ Understand DPO as a potential preference-learning tool. Keep canonical-label SFT
 
 ---
 
+### Story Bridge 11 — The DPO Formula Looks Compact, but What Does It Actually Reward?
+
+Question 10 derived a loss with four response probabilities: policy and reference probabilities for the preferred and rejected answer. If we cannot understand how those numbers combine in a real example, we may incorrectly describe DPO as "simply increasing the chosen response probability."
+
+Let us calculate one preference update conceptually.
+
+## Question 11 — How Do We Calculate and Interpret the DPO Loss?
+
+### Step 1 — Define the two response log probabilities
+
+For one input $x$, suppose two complete candidate responses are:
+
+~~~text
+Chosen:  "The page is sparse, but the visible answer card is useful."
+Rejected: "Any page with white space is low-quality."
+~~~
+
+Let:
+
+$$
+\ell_\theta^w=\log\pi_\theta(y_w\mid x)
+$$
+
+$$
+\ell_\theta^l=\log\pi_\theta(y_l\mid x)
+$$
+
+and define the corresponding reference values:
+
+$$
+\ell_{\mathrm{ref}}^w=\log\pi_{\mathrm{ref}}(y_w\mid x)
+$$
+
+$$
+\ell_{\mathrm{ref}}^l=\log\pi_{\mathrm{ref}}(y_l\mid x)
+$$
+
+Each complete-response log probability is the **sum of conditional next-token log probabilities** along that response under teacher forcing:
+
+$$
+\log\pi_\theta(y\mid x)
+=
+\sum_{t=1}^{T}\log\pi_\theta(y_t\mid x,y_{<t})
+$$
+
+As in Part 2, the input prompt/image conditions the answer but does not need to be included as supervised response tokens. Be consistent about whether the completion includes the end-of-turn token.
+
+### Step 2 — Calculate how much the policy favors the winner relative to the loser
+
+Define the policy log-probability margin:
+
+$$
+m_\theta=\ell_\theta^w-\ell_\theta^l
+$$
+
+The reference model has its own margin:
+
+$$
+m_{\mathrm{ref}}=\ell_{\mathrm{ref}}^w-\ell_{\mathrm{ref}}^l
+$$
+
+The DPO logit is the **change in relative preference margin**, scaled by $\beta$:
+
+$$
+z_{\mathrm{DPO}}
+=
+\beta(m_\theta-m_{\mathrm{ref}})
+$$
+
+The loss is:
+
+$$
+\mathcal L_{\mathrm{DPO}}=-\log\sigma(z_{\mathrm{DPO}})
+$$
+
+### Step 3 — Numerical worked example
+
+Take these illustrative **log probabilities**:
+
+| Candidate | Trainable policy | Frozen reference |
+|---|---:|---:|
+| Chosen | $-2.0$ | $-2.5$ |
+| Rejected | $-3.0$ | $-2.8$ |
+
+The policy margin is:
+
+$$
+m_\theta=-2.0-(-3.0)=1.0
+$$
+
+The reference margin is:
+
+$$
+m_{\mathrm{ref}}=-2.5-(-2.8)=0.3
+$$
+
+So:
+
+$$
+m_\theta-m_{\mathrm{ref}}=0.7
+$$
+
+For an illustrative $\beta=0.5$:
+
+$$
+z_{\mathrm{DPO}}=0.5(0.7)=0.35
+$$
+
+Then:
+
+$$
+\sigma(0.35)\approx0.587
+$$
+
+and:
+
+$$
+\mathcal L_{\mathrm{DPO}}
+=
+-\ln(0.587)\approx0.533
+$$
+
+If the policy favored the chosen response less than the reference does, the margin change could be negative and the loss higher.
+
+### Step 4 — What does the gradient encourage?
+
+Define:
+
+$$
+\Delta=
+\log\frac{\pi_\theta(y_w\mid x)}{\pi_{\mathrm{ref}}(y_w\mid x)}
+-
+\log\frac{\pi_\theta(y_l\mid x)}{\pi_{\mathrm{ref}}(y_l\mid x)}
+$$
+
+Then:
+
+$$
+\mathcal L=-\log\sigma(\beta\Delta)
+$$
+
+Differentiate with respect to $\Delta$:
+
+$$
+\frac{\partial\mathcal L}{\partial\Delta}
+=
+-\beta\sigma(-\beta\Delta)
+$$
+
+For $\beta>0$, this derivative is negative. Gradient descent therefore tends to increase $\Delta$: the policy becomes relatively more favorable to the chosen response compared with the rejected one, after adjusting for reference preference.
+
+**Important subtlety:** This does **not** promise that the *absolute* probability of the chosen response increases at every update. Model normalization and parameter sharing can cause complex probability changes. The direct training pressure is on the **relative reference-adjusted comparison**.
+
+### Step 5 — What does beta control?
+
+Under this particular DPO convention, $\beta$ scales the preference margin inside the sigmoid, and also corresponds to the KL coefficient in the idealized derivation.
+
+It affects the gradient scale and how strongly preference log-ratio changes are reflected by the loss. Its practical relationship to final model drift depends on optimization and data, so it is not correct to say "larger beta always means better alignment".
+
+At $\Delta=0$:
+
+$$
+\mathcal L=-\log\sigma(0)=\log 2\approx0.693
+$$
+
+The model is at the reference-relative indifference point, regardless of positive beta.
+
+### Qwen Project Application
+
+Suppose we train Qwen to produce a visual explanation and reviewers prefer one that correctly mentions an answer card over one that declares all whitespace junk. DPO would compare log probabilities of those **two explanations for the same screenshot**, not just the probabilities of the two class labels in our baseline classifier.
+
+### Design Decision — Q11
+
+If we ever experiment with DPO, inspect chosen/rejected **sequence log probabilities**, reference-adjusted margins, beta, response tokenization, and held-out task outcomes. Do not interpret the DPO loss as a calibrated class probability.
+
+### Project Build Record Update — Q11
+
+| Element | State | Type |
+|---|---|---|
+| DPO margin | Policy winner-minus-loser margin minus reference margin | Study Concept |
+| DPO beta | Training hyperparameter, not chosen | Open Question |
+| DPO margin versus class likelihood | Not interchangeable | Study Concept |
+
+---
+
+### Story Bridge 12 — DPO Is Simpler to Train, but Does That Make It Always Better Than RLHF?
+
+We have seen two ways to use human preferences. PPO-based RLHF can generate new responses and optimize an explicit learned reward; standard DPO trains directly from a fixed comparison dataset.
+
+Choosing between them requires understanding the **engineering trade-offs and limitations**, not just counting equations.
+
+## Question 12 — How Do DPO and PPO-Based RLHF Compare?
+
+### The short explanation
+
+**PPO-based RLHF** explicitly uses reward scores to drive a policy-optimization loop. It can incorporate generated rollouts and additional reward signals, but the training system is relatively complicated.
+
+**Standard offline DPO** directly fits pairwise preferences with policy and reference log probabilities. It is often easier to train and more resource-efficient, but its quality depends heavily on the fixed preference dataset and reference-policy assumptions.
+
+| Dimension | PPO-based RLHF | Standard offline DPO |
+|---|---|---|
+| Supervision | Learned scalar reward, often from human pairs | Chosen/rejected response pairs |
+| Separate reward model | Commonly yes | Not required by standard DPO loss |
+| Value/critic model | Often yes | No |
+| Online generated rollouts | Typical during training | Not required |
+| Frozen reference | Often used for KL penalty | Used directly in DPO ratios |
+| Training complexity | Higher; multiple interacting models and hyperparameters | Lower; supervised-style pairwise forward passes |
+| Model exploration | Can sample fresh responses as the policy changes | Limited by its fixed data unless refreshed |
+| Failure modes | Reward hacking, instability, critic/reward errors | Pair quality, reference mismatch, offline distribution limits |
+| Guarantee of better alignment | None | None |
+
+### Why offline data distribution matters
+
+Suppose the preference dataset contains only easy, polite chat exchanges. After fine-tuning, the model encounters complicated scientific reasoning prompts. Standard DPO cannot be assumed to learn robust behavior for inputs and responses absent from its training distribution.
+
+PPO-based RLHF has its own generalization problems, but a policy can collect new rollouts as it changes. That does not automatically solve label quality or safety concerns.
+
+### What about other methods?
+
+There are many related objectives and training algorithms, including online preference methods and reference-free or differently regularized losses. This chapter focuses on understanding the **standard conceptual forms** of reward-model RLHF and DPO first.
+
+### Model-size and hardware considerations
+
+DPO generally requires scoring two candidate responses under the trainable model and reference, often with teacher-forced forward passes. It can be implemented with LoRA, reference-log-probability caching or other memory-saving approaches, depending on library support.
+
+PPO may need response generation, reward scoring, value estimation and policy updates. Its resource demands are typically more complex, but exact relative cost depends on implementation, model size, response length and hardware.
+
+### Qwen Project Application
+
+Neither method is the default solution for a known two-class screenshot label. If we had a separate natural-language explanation assistant with a high-quality ranked-response dataset, DPO would be a sensible first preference method to evaluate before designing a complex RLHF stack. This remains an experiment proposal, not a measured result.
+
+### Design Decision — Q12
+
+Choose methods based on **data format, production behavior, empirical quality, hardware and training complexity**. For current Little Content labels, keep SFT as the baseline; DPO/RLHF only enter when a preference-specific gap is identified.
+
+### Project Build Record Update — Q12
+
+| Element | State | Type |
+|---|---|---|
+| Offline preference optimization | DPO is a possible simpler baseline | Study Concept |
+| PPO-RLHF alternative | More complex, may use fresh rollouts | Study Concept |
+| Actual selection for screenshot classification | SFT remains preferred baseline | Design Decision |
+
+---
+
+### Story Bridge 13 — The DPO Equation Is Straightforward, but Training Can Still Fail Through Data Formatting
+
+Part 3 taught us that chat templates, image processors and loss masks matter. DPO uses **two responses for the same prompt**, so a single example has even more opportunities for mismatched formatting, context or token-level scoring.
+
+We must connect preference optimization to the practical data pipeline we already designed.
+
+## Question 13 — How Do We Train with Preference Pairs in Practice, Especially for a VLM?
+
+### The core rule
+
+A valid preference pair uses the **same conditioning input** for both completions:
+
+~~~text
+Input:
+    System policy
+    User instruction
+    Same SERP screenshot I
+
+Completion 1:
+    Preferred response y_w
+
+Completion 2:
+    Rejected response y_l
+~~~
+
+A pair is invalid for ordinary response-preference training if the two candidates answer different screenshots or materially different instructions.
+
+### Processing workflow
+
+~~~text
+One labelled preference record
+      |
+      +--> shared raw conversation / image input
+      |
+      +--> chosen completion
+      |
+      +--> rejected completion
+      ↓
+Apply checkpoint-compatible chat template / processor
+      ↓
+Score chosen and rejected target sequences under policy
+      ↓
+Score chosen and rejected sequences under frozen reference
+      ↓
+Compute DPO margin and loss
+      ↓
+Backpropagate into trainable policy / LoRA parameters
+~~~
+
+The frozen reference provides probabilities but does not receive optimizer updates.
+
+### What can go wrong?
+
+**1. The prompt is not identical.**
+
+If the chosen example contains one image and the rejected example contains another, the reward comparison is entangled with different evidence.
+
+**2. The answer spans are misidentified.**
+
+The log probabilities should cover the intended **response sequence**, not arbitrarily include different prompt lengths. The implementation must handle the same conventions for policy and reference.
+
+**3. Completion lengths differ.**
+
+A sequence log probability is a sum over tokens. Longer sequences can accumulate more negative log probability simply because they contain more factors.
+
+This is not automatically repaired by dividing by response length; length normalization changes the objective. It requires task-specific evaluation.
+
+**4. Chat templates differ between policy and reference.**
+
+The two policies' log ratios are meaningful only when they score compatible prompt/response representations. Different or duplicated templates undermine the comparison.
+
+**5. Image preprocessing differs across chosen/rejected paths.**
+
+A consistent screenshot must result in consistent visual inputs for both candidates. Cached visual representations are only safe if the implementation preserves their association and model semantics.
+
+**6. Preference labels reflect style rather than quality.**
+
+If reviewers prefer longer, polished descriptions even when visually wrong, DPO can learn that bias.
+
+### Teacher-forcing connection
+
+We already know the two full responses. DPO can evaluate their token log probabilities **without sampling each output from the updated policy at training time**:
+
+$$
+\log\pi_\theta(y_w\mid x)
+=
+\sum_t\log\pi_\theta(y_{w,t}\mid x,y_{w,<t})
+$$
+
+$$
+\log\pi_\theta(y_l\mid x)
+=
+\sum_t\log\pi_\theta(y_{l,t}\mid x,y_{l,<t})
+$$
+
+This is the same causal conditional-probability factorization from Parts 2 and 3, now applied twice for one preference pair.
+
+### Qwen Project Application
+
+Suppose we introduce a distinct, optional ability to explain the Little Content decision. We could compare two explanations for the *same* screenshot, provided human reviewers judge **groundedness, policy consistency and correctness**, rather than just eloquence.
+
+For the production label-only interface, do not create artificial preference pairs by calling the known correct label "chosen" and the incorrect label "rejected" unless there is a clear, experimentally justified reason to abandon straightforward class-supervised learning.
+
+### Design Decision — Q13
+
+Preference training is hypothetical. If introduced, require strict shared input/image, matching chat templates, carefully scoped completion log probabilities, consistent response endings and expert-reviewed preference criteria.
+
+### Project Build Record Update — Q13
+
+| Element | State | Type |
+|---|---|---|
+| Chosen/rejected input equality | Must use same prompt/image | Design Decision |
+| Preference completion masks | Score intended assistant response only | Design Decision |
+| Multimodal DPO recipe | Not yet validated on any checkpoint | Open Question |
+
+---
+
+### Story Bridge 14 — Lower DPO Loss and Higher Reward Are Training Signals. How Do We Know People Actually Prefer the New Model?
+
+Part 2 taught us that lower token loss is not the same as fewer business errors. The same principle applies more strongly to preference optimization: training objectives are only proxies for the behavior we actually want.
+
+We need independent evaluation.
+
+## Question 14 — How Do We Evaluate a Preference-Aligned Model?
+
+### The central principle
+
+**Do not declare alignment successful based solely on reward score or DPO training loss.**
+
+Evaluate on new prompts, new response types and held-out preference judgments. For task-specific systems, measure the actual task objective too.
+
+### Preference win rates
+
+Let model A and model B each produce responses for the same held-out prompt set. Humans or a sufficiently validated judge compare them using a fixed rubric.
+
+If A wins 60 out of 100 comparisons, B wins 30, and 10 are ties, one common reporting convention is:
+
+$$
+\mathrm{WinRate}_{A}=\frac{60}{100}=0.60
+$$
+
+Some evaluation protocols assign half credit to ties:
+
+$$
+\mathrm{WinRateWithHalfTies}_{A}
+=
+\frac{60+0.5(10)}{100}
+=
+0.65
+$$
+
+**Always specify the tie convention.** These are illustrative counts, not measured Qwen results.
+
+### Common evaluation dimensions
+
+| Dimension | Question |
+|---|---|
+| Pairwise preference win rate | Is the new model preferred over a baseline on held-out prompts? |
+| Human consistency | Would qualified reviewers broadly agree with the preference rubric? |
+| Groundedness / factuality | Does the response reflect evidence rather than invented details? |
+| Instruction following | Does it obey the requested length, role and output format? |
+| Safety and harmful failures | Does preference training introduce dangerous or inappropriate behavior? |
+| Diversity and verbosity | Is the model becoming repetitive or unnecessarily long? |
+| Robustness | Does behavior hold for unfamiliar prompts, hosts or layouts? |
+| Computational cost | Is any gain worth serving/training memory, latency and complexity? |
+
+### Judge-model caveats
+
+A model-based judge can reduce evaluation cost but may show position bias, style bias, familiarity bias, verbosity bias or correlated model errors.
+
+Good practice includes:
+
+- Randomizing A/B response order.
+- Using clear rubrics.
+- Recording ties and uncertainty.
+- Checking a human-reviewed subset.
+- Avoiding judges that simply reward their own preferred writing style.
+- Reporting evaluation-set composition and error slices.
+
+### Why direct task metrics remain necessary
+
+For the Little Content classifier, define positives as Little Content and calculate:
+
+$$
+\mathrm{Precision}=\frac{TP}{TP+FP}
+$$
+
+$$
+\mathrm{Recall}=\frac{TP}{TP+FN}
+$$
+
+$$
+\mathrm{FPR}=\frac{FP}{FP+TN}
+$$
+
+A model could win more explanation-preference judgments yet produce more false-positive class labels. Such a change may be unacceptable for the actual product.
+
+### Qwen Project Application
+
+If preferences were added for explanations, evaluate **explanation quality** separately from **classification correctness**. Preserve hard-negative screenshot slices, unfamiliar hosts and the required label-only production behavior.
+
+### Design Decision — Q14
+
+Require task-level evaluation, held-out preference comparisons, human audit and cost analysis before accepting any alignment method. Separate explanatory preference wins from classification improvements.
+
+### Project Build Record Update — Q14
+
+| Element | State | Type |
+|---|---|---|
+| Pairwise win rate | May evaluate optional explanation model | Open Question |
+| Classification metrics | Primary for current task | Design Decision |
+| Judge bias safeguards | Needed for preference-evaluation pipeline | Design Decision |
+
+---
+
+### Story Bridge 15 — We Know SFT, Reward Models, PPO and DPO. Which of Them Actually Belongs in Our Qwen Design?
+
+Without a final design decision, the chapter would become a collection of equations. The point of an engineering curriculum is to decide *when each tool solves a real problem*.
+
+We now combine the theory with the Qwen Little Content task and explicitly record what is known, proposed and unresolved.
+
+## Question 15 — What Is Our Qwen Preference-Optimization Design, and When Would We Use It?
+
+### Step 1 — State the actual product problem
+
+The project description concerns identifying **Little Content** SERP pages using screenshots and a Qwen VLM.
+
+Our theoretical training interface remains:
+
+~~~text
+Input:
+    Screenshot of a SERP page
+    Task instruction
+
+Output:
+    Little Content
+      OR
+    Not Little Content
+~~~
+
+We have reviewed supervised class labels from Parts 2/3. There is no established need for free-form comparison of multiple long responses.
+
+### Step 2 — Identify the learning signal
+
+If each screenshot has a trustworthy class label, the direct supervised task is:
+
+$$
+\mathcal D_{\mathrm{class}}
+=
+\{(I_i,u_i,y_i)\}_{i=1}^{N}
+$$
+
+with assistant-target cross-entropy:
+
+$$
+\mathcal L_{\mathrm{class}}
+=
+-\sum_i
+\sum_{t\in\mathcal T_i}
+\log\pi_\theta(y_{i,t}\mid I_i,u_i,y_{i,<t})
+$$
+
+This directly supervises the desired answer.
+
+### Step 3 — Identify what preference training would add
+
+Potential extra product requirements might include:
+
+- Provide a concise, evidence-grounded explanation of a screenshot decision.
+- Rank two borderline policy interpretations when no unique target explanation exists.
+- Prefer a shorter, clearer or safer *explanation* among several factually acceptable ones.
+
+These are **hypothetical extensions**. They should not be silently assumed to exist.
+
+### Step 4 — Decide between methods using the problem, not popularity
+
+| Situation | Most natural initial strategy | Why |
+|---|---|---|
+| Reliable screenshot → binary class labels | SFT or a dedicated classifier baseline | Direct target supervision expresses the goal |
+| Unclear label policy / annotator disagreement | Improve policy, adjudication and data first | RLHF does not fix contradictory ground truth |
+| Open-ended, rankable explanations | SFT then consider DPO on high-quality pairs | Pairwise behavior preference is relevant |
+| Need online reward-guided exploration with validated scorer | Evaluate PPO-based RLHF or alternatives | Explicit rewards and fresh rollouts may matter |
+| Primary memory limitation | LoRA/QLoRA as supported | Adaptation and memory strategy, not preference method |
+
+### Step 5 — Form an honest proposed architecture
+
+~~~mermaid
+flowchart TD
+    A["Labelled SERP screenshots"] --> B["Annotation and leakage audits"]
+    B --> C["Prompt-only and simpler-classifier baselines"]
+    C --> D["Supervised Qwen training with canonical class targets"]
+    D --> E["Proposed PEFT/LoRA adaptation"]
+    E --> F["Independent classification evaluation"]
+    F --> G{"Demonstrated need for preference learning?"}
+    G -->|No| H["Keep SFT + validated scoring"]
+    G -->|Yes, explanation/ranking use case| I["Define preference rubric and collect pairs"]
+    I --> J["Evaluate DPO baseline versus other methods"]
+    J --> K["Validate human preference AND classification correctness"]
+~~~
+
+The diagram describes a **hypothetical development decision tree**, not a completed deployed pipeline.
+
+### Step 6 — What would convince us to add DPO?
+
+We would require all of the following:
+
+1. A genuine preference-oriented capability that canonical classification targets do not sufficiently teach.
+2. A trustworthy set of pairs built from the **same screenshot and instruction** with a clearly documented rubric.
+3. A reproducible DPO baseline with compatible policy/reference processing.
+4. Held-out evidence of improved preferred behavior **without** unacceptable classification regressions, hallucinations, or serving cost.
+5. Human review of critical error slices.
+
+If these conditions are not met, adding DPO is unnecessary complexity.
+
+### Step 7 — What would convince us to add PPO-based RLHF?
+
+We would need a substantial reason to favor online reward-guided policy optimization and sufficient evidence that an explicit reward signal can be trusted. We would also need the computing, software and evaluation capabilities to manage policy rollouts, reward scoring, reference drift and possible value estimation.
+
+For a strict binary labeler, this is usually a much higher bar than SFT.
+
+### Qwen Project Application — Final Part 4 Decision
+
+**Our current theoretical Qwen Little Content system remains SFT-first, with the Part 2B LoRA baseline and Part 3 multimodal instruction formatting.**
+
+- **Not adding by default:** explicit reward model, PPO loop or DPO preference stage.
+- **Potentially adding later:** preference optimization for a separately justified response-explanation/ranking feature.
+- **Still unresolved:** actual checkpoint details, training and evaluation metrics, dataset quality, hyperparameters and production scoring.
+
+### Design Decision — Q15
+
+Choose **direct class-supervised training** as the default. Preference optimization is conditional on a demonstrated preference-specific requirement, not a required stage of every fine-tuning project.
+
+### Project Build Record Update — Q15
+
+| Element | State | Type |
+|---|---|---|
+| Preference stage in baseline | Omitted | Design Decision |
+| Reward model in baseline | Omitted | Design Decision |
+| PPO in baseline | Omitted | Design Decision |
+| DPO in baseline | Omitted unless separate need shown | Design Decision |
+| Optional explanation preference research | Not established | Open Question |
+
+---
+
+# Qwen Project Build Record — After Part 4
+
+This is a cumulative record. **Resume Fact** identifies described work/scope, not proof that the theoretical training configurations below were implemented. **Design Decision** identifies a proposal within this study. **Open Question** flags matters requiring real evidence.
+
+| Design element | Current state | Type |
+|---|---|---|
+| Business objective | Little Content detection on SERP screenshots | Resume Fact |
+| Model family | Qwen vision-language model | Resume Fact |
+| Input modality | Labelled Bing SERP screenshots | Resume Fact |
+| Described processing scale | About 50K URLs/day | Resume Fact |
+| Core model task | Binary Little Content classification | Design Decision |
+| Input format | Screenshot + task instruction | Design Decision |
+| Supervised response | One of two canonical class labels | Design Decision |
+| Optimization signal | Teacher-forced assistant-target cross-entropy | Design Decision |
+| Message roles and chat format | Checkpoint-compatible multimodal instruction formatting | Design Decision |
+| Image processing | Must match exact selected checkpoint | Design Decision |
+| Trainable weights | Proposed language-side LoRA starting baseline | Design Decision |
+| Pretrained vision and language weights | Initially frozen in proposal | Design Decision |
+| Initial adapter target candidates | Language attention Query/Value projections | Design Decision |
+| Multimodal connector | Trainable if separately available and justified | Design Decision |
+| Quantized base / QLoRA | Possible memory-constrained alternative | Design Decision |
+| Reliable raw labels and annotation policy | Must be verified | Open Question |
+| Generalization target | Unseen hosts, layouts and hard negatives | Design Decision |
+| Training/validation/test groups | Exact split not established | Open Question |
+| Candidate class scoring and threshold | Validate experimentally | Open Question |
+| Preference pairs for current classification task | Not defined | Open Question |
+| Standalone reward model | Not part of baseline | Design Decision |
+| PPO-based RLHF | Not part of baseline | Design Decision |
+| DPO preference objective | Not part of baseline | Design Decision |
+| Optional explanation/ranking feature | Not established | Open Question |
+| Preference rubric and inter-rater agreement | Required only if preference feature is pursued | Open Question |
+| DPO policy/reference setup and beta | Not chosen or trained | Open Question |
+| RLHF reward model/critic/KL details | Not chosen or trained | Open Question |
+| Exact Qwen checkpoint / tokenizer / image processing | Not established | Open Question |
+| Exact LoRA ranks, optimizer and LR schedule | Deferred training configuration | Open Question |
+| Held-out metrics and measured effect of any theoretical adaptation | No results established in these notes | Open Question |
+| Production-serving architecture and system costs | Not established | Open Question |
+
+---
+
+# Part 4 — Key Equations and What They Mean
+
+## Bradley–Terry preference probability
+
+$$
+P(y_w\succ y_l\mid x)
+=
+\sigma(r(x,y_w)-r(x,y_l))
+$$
+
+The reward difference—not the absolute reward offset—determines the pairwise win probability in this model.
+
+## Reward-model loss
+
+$$
+\mathcal L_{\mathrm{RM}}
+=
+-\log\sigma(r_\phi(x,y_w)-r_\phi(x,y_l))
+$$
+
+This fits reward scores from preferred/rejected pairs.
+
+## KL-regularized policy objective
+
+$$
+\max_\theta
+\mathbb E_{\pi_\theta}[r(x,y)]
+-
+\beta D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}})
+$$
+
+This schematic objective trades reward against deviation from the reference, with implicit prompt conditioning.
+
+## PPO clipped surrogate
+
+$$
+L_{\mathrm{clip}}
+=
+\mathbb E_t
+\min\left(
+\rho_tA_t,\;
+\operatorname{clip}(\rho_t,1-\epsilon,1+\epsilon)A_t
+\right)
+$$
+
+This discourages excessive policy probability-ratio updates to the sampled actions in the surrogate objective.
+
+## DPO loss
+
+$$
+\mathcal L_{\mathrm{DPO}}
+=
+-\mathbb E_{(x,y_w,y_l)}
+\log\sigma\left(
+\beta\left[
+\log\frac{\pi_\theta(y_w\mid x)}{\pi_{\mathrm{ref}}(y_w\mid x)}
+-
+\log\frac{\pi_\theta(y_l\mid x)}{\pi_{\mathrm{ref}}(y_l\mid x)}
+\right]
+\right)
+$$
+
+This uses the policy/reference-relative preference margin directly from response log probabilities.
+
+## DPO margin
+
+$$
+\Delta
+=
+\left[\log\pi_\theta(y_w\mid x)-\log\pi_\theta(y_l\mid x)\right]
+-
+\left[\log\pi_{\mathrm{ref}}(y_w\mid x)-\log\pi_{\mathrm{ref}}(y_l\mid x)\right]
+$$
+
+A larger positive $\Delta$ means the trainable policy favors the chosen completion more relative to the rejected completion than the reference does.
+
+---
+
+# Part 4 — Final Mental Model
+
+~~~text
+SUPERVISED FINE-TUNING
+"Here is the correct response."
+       ↓
+MODEL CAN FOLLOW BASIC INSTRUCTIONS
+       ↓
+SOME TASKS HAVE SEVERAL PLAUSIBLE RESPONSES
+       ↓
+HUMAN PREFERENCE PAIRS
+"For the same prompt, response A is better than B."
+       |
+       +--> REWARD MODEL
+       |       ↓
+       |    RLHF / PPO WITH REFERENCE AND REWARD
+       |
+       +--> DIRECT PREFERENCE OPTIMIZATION
+               DPO, using policy and reference log probabilities
+       ↓
+INDEPENDENT EVALUATION
+Did actual task quality and human preference improve?
+       ↓
+CHOOSE ONLY IF THE METHOD SOLVES A REAL GAP
+~~~
+
+**Main Qwen decision:** Binary Little Content labels already support direct supervised learning. Preference optimization is **not a mandatory stage** of the proposed Qwen classifier and should not be claimed as performed.
+
+# One-Line Summary
+
+> **SFT teaches a model which responses to imitate; preference learning teaches which candidate responses are preferred; reward-model RLHF and DPO provide different ways to learn from comparisons, but the correct engineering choice depends on the actual task.**
+
+---
+
+# Bridge to the Next Study Unit — Alignment, Safety and Training Engineering
+
+Part 4 focused on preference signals and optimization. The remaining curriculum will examine how to turn those ideas into robust training and evaluation practices: alignment/safety requirements, training configurations, data leakage, generalization and reliable task-level assessment.
+
+Those belong to subsequent parts rather than silently expanding the preference-learning syllabus here.
