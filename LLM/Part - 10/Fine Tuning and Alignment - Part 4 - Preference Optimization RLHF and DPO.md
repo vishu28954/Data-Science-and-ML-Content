@@ -151,21 +151,18 @@ An instruction dataset gives us a response to imitate. A preference dataset give
 SFT objective for demonstrations $(x,y)$:
 
 $$
-\mathcal L_{\mathrm{SFT}}
-=
--\mathbb E_{(x,y)\sim\mathcal D_{\mathrm{SFT}}}
-\log\pi_\theta(y\mid x)
+\mathcal{L}_{\mathrm{SFT}} = -\mathbb{E}_{(x,y) \sim \mathcal{D}_{\mathrm{SFT}}} \log \pi_\theta(y \mid x)
 $$
+
 
 Here $\pi_\theta$ denotes the response-generating policy (our generative model).
 
 Pairwise preference data:
 
 $$
-\mathcal D_{\mathrm{pref}}
-=
-\{(x_i,y_{w,i},y_{l,i})\}_{i=1}^{N}
+\mathcal{D}_{\mathrm{pref}} = \{(x_i, y_{w,i}, y_{l,i})\}_{i=1}^{N}
 $$
+
 
 A chosen response is not necessarily unique. A reward model or DPO objective can transform relative judgments into a trainable signal.
 
