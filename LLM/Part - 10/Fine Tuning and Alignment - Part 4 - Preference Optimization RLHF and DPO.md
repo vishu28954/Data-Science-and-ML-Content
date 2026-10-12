@@ -844,48 +844,6 @@ A KL constraint **cannot guarantee factual accuracy or safety**, and restricting
 
 ---
 
-### Numerical example with two response choices
-
-Imagine the reference model gives two candidate responses equal probability:
-
-$$
-\pi_{\mathrm{ref}}=(0.5,0.5)
-$$
-
-The updated policy strongly favors the first:
-
-$$
-\pi_\theta=(0.9,0.1)
-$$
-
-Then:
-
-$$
-D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}}) =
-0.9\ln\frac{0.9}{0.5}
-+
-0.1\ln\frac{0.1}{0.5}
-$$
-
-$$
-\approx0.9(0.5878)+0.1(-1.6094)
-\approx0.3681
-$$
-
-The policy has changed quite substantially. If both distributions were $(0.5,0.5)$, the KL value would be zero.
-
-### Why beta matters
-
-An idealized objective:
-
-$$
-J(\theta) = \mathbb E_{\pi_\theta}[r(x,y)] -
-\beta D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}})
-$$
-
-For larger $\beta$, deviations are penalized more strongly. For smaller $\beta$, the optimizer is freer to follow the reward model.
-
-**Important nuance:** KL can be formulated with different directions, sampled estimators or token-wise approximations. State the convention when discussing a specific implementation.
 
 ### Token-level connection
 
