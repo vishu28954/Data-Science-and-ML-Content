@@ -59,18 +59,16 @@ In instruction tuning, the request becomes part of the input and the correct res
 Let $u$ be the instruction, $x$ additional input such as an image, and $y$ the assistant response.
 
 $$
-P_\theta(y\mid u,x)
-=
-\prod_{t=1}^{T}P_\theta(y_t\mid u,x,y_{<t}^{\mathrm{true}})
+P_\theta(y \mid u, x) = \prod_{t=1}^{T} P_\theta(y_t \mid u, x, y_{\lt t}^{\text{true}})
 $$
+
 
 We can minimize:
 
 $$
-\mathcal L_{\mathrm{IT}}
-=
--\sum_{t=1}^{T}\log P_\theta(y_t\mid u,x,y_{<t}^{\mathrm{true}})
+\mathcal{L}_{\mathrm{IT}} = -\sum_{t=1}^{T} \log P_\theta(y_t \mid u, x, y_{\lt t}^{\text{true}})
 $$
+
 
 This is not a new kind of loss. The important change is **what the labelled data asks the model to learn**.
 
