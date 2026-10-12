@@ -356,8 +356,9 @@ $$
 For the textual part, the tokenizer maps the serialized text to token IDs:
 
 $$
-z=\operatorname{Tokenizer}(s)
+z = \text{Tokenizer}(s)
 $$
+
 
 For a VLM, the full processor also prepares image tensors and possibly image-grid metadata or placeholders. **The resulting inputs are not necessarily just one flat array of text token IDs.**
 
@@ -444,8 +445,9 @@ $$
 Later assistant tokens are predicted as:
 
 $$
-P_\theta(y_t\mid p,y_{<t}^{\mathrm{true}})
+z = \text{Tokenizer}(s)
 $$
+
 
 If the serialized prefix is wrong, the conditioning context has changed even if the image and text are unchanged.
 
@@ -498,15 +500,9 @@ The image and instruction remain conditioning inputs.
 Let $z_1,\ldots,z_L$ denote token IDs in the formatted sequence, and let $m_t=1$ only when $z_t$ is an intended assistant target.
 
 $$
-\mathcal L_{\mathrm{chat}}
-=
--
-\frac{
-\sum_{t=1}^{L}m_t\log P_\theta(z_t\mid z_{<t},I)
-}{
-\sum_{t=1}^{L}m_t
-}
+\mathcal{L}_{\mathrm{chat}} = - \frac{\sum_{t=1}^{L} m_t \log P_\theta(z_t \mid z_{\lt t}, I)}{\sum_{t=1}^{L} m_t}
 $$
+
 
 Here:
 
@@ -835,20 +831,16 @@ $$
 The language-side computation, combined with the model-specific multimodal connection, produces probabilities for the response sequence:
 
 $$
-P_\theta(y\mid I,u)
-=
-\prod_{t=1}^{T}
-P_\theta(y_t\mid I,u,y_{<t}^{\mathrm{true}})
+P_\theta(y \mid I, u) = \prod_{t=1}^{T} P_\theta(y_t \mid I, u, y_{\lt t}^{\text{true}})
 $$
+
 
 The supervised token objective remains:
 
 $$
-\mathcal L
-=
--\sum_{t\in\mathcal T_{\mathrm{assistant}}}
-\log P_\theta(y_t\mid I,u,y_{<t}^{\mathrm{true}})
+\mathcal{L} = -\sum_{t \in \mathcal{T}_{\mathrm{assistant}}} \log P_\theta(y_t \mid I, u, y_{\lt t}^{\text{true}})
 $$
+
 
 Only selected assistant token targets contribute directly to this loss. The image is **conditioning information**, so it can still affect the gradients of trainable modules.
 
@@ -978,13 +970,9 @@ Let group $k$ have dataset distribution $\mathcal D_k$ and sampling weight $w_k$
 A mixture objective is:
 
 $$
-\mathcal L_{\mathrm{mix}}
-=
-\sum_{k=1}^{K}
-w_k
-\mathbb E_{(x,y)\sim\mathcal D_k}
-[\mathcal L_\theta(x,y)]
+\mathcal{L}_{\mathrm{mix}} = \sum_{k=1}^{K} w_k \mathbb{E}_{(x,y) \sim \mathcal{D}_k} [\mathcal{L}_\theta(x,y)]
 $$
+
 
 Changing $w_k$ changes which examples contribute more often or more strongly to training. A larger weight is not always better; noisy or duplicated sources can become overrepresented.
 
@@ -1246,11 +1234,9 @@ We must not assume that these are the actual Qwen tokens or that the response ha
 With mask $m_t$:
 
 $$
-\mathcal L
-=
--\frac{\sum_t m_t\log P_\theta(z_t\mid z_{<t},I)}
-{\sum_t m_t}
+\mathcal{L} = - \frac{\sum_t m_t \log P_\theta(z_t \mid z_{\lt t}, I)}{\sum_t m_t}
 $$
+
 
 ### Step 6 — Apply the parameter-update design from Part 2B
 
@@ -1383,34 +1369,27 @@ This record is cumulative. It includes earlier Part 2/2B assumptions and the new
 ## Instruction-conditioned likelihood
 
 $$
-P_\theta(y\mid u,I)
-=
-\prod_{t=1}^{T}P_\theta(y_t\mid u,I,y_{<t}^{\mathrm{true}})
+P_\theta(y \mid u, I) = \prod_{t=1}^{T} P_\theta(y_t \mid u, I, y_{\lt t}^{\text{true}})
 $$
+
 
 $u$ is the request; $I$ is the screenshot; $y$ is the intended answer sequence.
 
 ## Assistant-only masked loss
 
 $$
-\mathcal L
-=
--\frac{\sum_t m_t\log P_\theta(z_t\mid z_{<t},I)}
-{\sum_t m_t}
+\mathcal{L} = - \frac{\sum_t m_t \log P_\theta(z_t \mid z_{\lt t}, I)}{\sum_t m_t}
 $$
+
 
 $m_t=1$ for supervised assistant targets and $0$ for ignored positions. The screenshot can influence all supervised probabilities even though it does not carry a direct text-token target.
 
 ## Dataset-mixture objective
 
 $$
-\mathcal L_{\mathrm{mix}}
-=
-\sum_{k=1}^{K}w_k
-\mathbb E_{(x,y)\sim\mathcal D_k}[\mathcal L_\theta(x,y)],
-\qquad
-\sum_{k=1}^{K}w_k=1
+\mathcal{L}_{\mathrm{mix}} = \sum_{k=1}^{K} w_k \mathbb{E}_{(x,y) \sim \mathcal{D}_k} [\mathcal{L}_\theta(x,y)], \qquad \sum_{k=1}^{K} w_k = 1
 $$
+
 
 $w_k$ changes the contribution of task/data source $k$; it does not guarantee better downstream performance.
 
