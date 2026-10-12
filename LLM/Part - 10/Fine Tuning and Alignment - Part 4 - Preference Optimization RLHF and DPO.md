@@ -635,8 +635,7 @@ This tiny table is *only a mathematical teaching example*. An actual language mo
 #### Step 2 — Read the equation one component at a time
 
 $$
-D_{\mathrm{KL}}(P\|Q)
-=
+D_{\mathrm{KL}}(P\|Q) =
 \sum_y P(y)\ln\frac{P(y)}{Q(y)}
 $$
 
@@ -653,16 +652,14 @@ $$
 Why use a **ratio**? If P assigns Paris probability $0.80$ and Q assigns $0.50$, the ratio is:
 
 $$
-\frac{P(\mathrm{Paris})}{Q(\mathrm{Paris})}
-=
+\frac{P(\mathrm{Paris})}{Q(\mathrm{Paris})} =
 \frac{0.80}{0.50}=1.6
 $$
 
 P considers that response 1.6 times as likely. For Berlin:
 
 $$
-\frac{P(\mathrm{Berlin})}{Q(\mathrm{Berlin})}
-=
+\frac{P(\mathrm{Berlin})}{Q(\mathrm{Berlin})} =
 \frac{0.05}{0.20}=0.25
 $$
 
@@ -675,8 +672,7 @@ The natural log turns **equal probabilities** into zero because $\ln(1)=0$, rati
 For our distributions:
 
 $$
-D_{\mathrm{KL}}(P\|Q)
-=
+D_{\mathrm{KL}}(P\|Q) =
 0.80\ln\frac{0.80}{0.50}
 +
 0.15\ln\frac{0.15}{0.30}
@@ -735,16 +731,14 @@ More generally, KL divergence is **zero if and only if the distributions match**
 The two directions weight their responses differently.
 
 $$
-D_{\mathrm{KL}}(P\|Q)
-=
+D_{\mathrm{KL}}(P\|Q) =
 \sum_y P(y)\ln\frac{P(y)}{Q(y)}
 $$
 
 But reversing the order gives:
 
 $$
-D_{\mathrm{KL}}(Q\|P)
-=
+D_{\mathrm{KL}}(Q\|P) =
 \sum_y Q(y)\ln\frac{Q(y)}{P(y)}
 $$
 
@@ -759,8 +753,7 @@ $$
 whereas:
 
 $$
-D_{\mathrm{KL}}(Q\|P)
-=
+D_{\mathrm{KL}}(Q\|P) =
 0.50\ln\frac{0.50}{0.80}
 +
 0.30\ln\frac{0.30}{0.15}
@@ -799,33 +792,23 @@ Real LLMs do not directly have these three discrete style categories in their ou
 An autoregressive model constructs each response one token at a time:
 
 $$
-\pi_\theta(y\mid x)
-=
-\prod_{t=1}^{T}\pi_\theta(y_t\mid x,y_{<t})
+\pi_\theta(y \mid x) = \prod_{t=1}^{T} \pi_\theta(y_t \mid x, y_{\lt t})
 $$
+
 
 Taking logs turns that product into a sum:
 
 $$
-\log\pi_\theta(y\mid x)
-=
-\sum_{t=1}^{T}
-\log\pi_\theta(y_t\mid x,y_{<t})
+\log \pi_\theta(y \mid x) = \sum_{t=1}^{T} \log \pi_\theta(y_t \mid x, y_{\lt t})
 $$
+
 
 Consequently, the log ratio between updated and reference policies is:
 
 $$
-\log\frac{\pi_\theta(y\mid x)}{\pi_{\mathrm{ref}}(y\mid x)}
-=
-\sum_{t=1}^{T}
-\log
-\frac{
-\pi_\theta(y_t\mid x,y_{<t})
-}{
-\pi_{\mathrm{ref}}(y_t\mid x,y_{<t})
-}
+\log \frac{\pi_\theta(y \mid x)}{\pi_{\mathrm{ref}}(y \mid x)} = \sum_{t=1}^{T} \log \frac{\pi_\theta(y_t \mid x, y_{\lt t})}{\pi_{\mathrm{ref}}(y_t \mid x, y_{\lt t})}
 $$
+
 
 An exact KL divergence over **all possible complete responses** is generally too expensive to enumerate, so practical RLHF systems use sampled or token-level calculations and estimators.
 
@@ -838,18 +821,9 @@ A reward model might encourage an update to make replies extremely short or over
 A common idealized objective is:
 
 $$
-J(\theta)
-=
-\mathbb E_{\pi_\theta}[r(x,y)]
--
-\beta
-D_{\mathrm{KL}}
-\left(
-\pi_\theta(\cdot\mid x)
-\|
-\pi_{\mathrm{ref}}(\cdot\mid x)
-\right)
+J(\theta) = \mathbb{E}_{\pi_\theta}[r(x,y)] - \beta D_{\mathrm{KL}} \left( \pi_\theta(\cdot \mid x) \parallel \pi_{\mathrm{ref}}(\cdot \mid x) \right)
 $$
+
 
 The first term encourages higher-scoring responses. The second discourages large reference-relative distribution shifts.
 
