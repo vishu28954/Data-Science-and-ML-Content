@@ -491,3 +491,601 @@ Use the Bradley–Terry objective as our mathematical reference for reward model
 
 ---
 
+### Story Bridge 6 — We Can Score Responses, but How Does the Generative Model Learn to Earn Higher Scores?
+
+A reward model rates completed responses. The policy model is the one that actually generates new responses. We need a learning process connecting the reward scores back to changes in the policy.
+
+That is the motivation for reinforcement learning from human feedback.
+
+## Question 6 — What Is the Standard RLHF Pipeline?
+
+### Simple intuition
+
+**RLHF uses human preference data to guide a model toward responses that score better under a learned reward signal.**
+
+A common classical pipeline has three stages:
+
+~~~text
+1. Supervised Fine-Tuning (SFT)
+   Teach the model to give sensible instruction-following responses
+                   ↓
+2. Preference data → Reward Model
+   Teach a scorer which responses people prefer
+                   ↓
+3. Reinforcement Learning (often PPO)
+   Improve the generating model according to reward,
+   while discouraging excessive departure from a reference model
+~~~
+
+This is a **common historical RLHF design**, not the only modern alignment workflow. DPO and other approaches do not necessarily run a separate reward-model-plus-PPO loop.
+
+### Learn the four roles without mixing them
+
+| Component | What it is | Primary job |
+|---|---|---|
+| Initial/SFT policy | A response-generating model after supervised training | Provide a competent starting behavior |
+| Trainable policy $\pi_\theta$ | The model whose behavior we are improving | Generate responses and receive updates |
+| Reward model $r_\phi$ | A scalar-response scorer trained from preferences | Estimate preference quality |
+| Reference policy $\pi_{\mathrm{ref}}$ | A frozen distribution, often a copy of the SFT model | Constrain how far the updated policy moves |
+
+In PPO-based setups, there may also be a **value model/critic** and a **rollout or old-policy snapshot**, which serve different purposes. We will derive them in Question 8.
+
+### One RLHF iteration
+
+For a sampled instruction $x$:
+
+1. Generate one or more response sequences $y$ from the current policy.
+2. Score the completed response with the reward model.
+3. Calculate a policy-deviation penalty relative to the reference.
+4. Estimate which generated actions were better than expected.
+5. Update the trainable policy using an RL algorithm, often a clipped PPO-style update.
+6. Repeat with fresh responses, monitor response quality, and test against held-out evaluations.
+
+The human comparison work may occur **before** the RL optimization phase. We don't need a human in every policy-update step if using a learned reward model.
+
+### Mathematical objective: why it contains two terms
+
+A useful conceptual KL-regularized RLHF objective is:
+
+$$
+\max_\theta
+\mathbb E_{x\sim\mathcal D,\;y\sim\pi_\theta(\cdot\mid x)}
+\left[
+r_\phi(x,y)
+\right]
+-
+\beta
+\mathbb E_{x\sim\mathcal D}
+\left[
+D_{\mathrm{KL}}
+\left(
+\pi_\theta(\cdot\mid x)
+\;\|\;
+\pi_{\mathrm{ref}}(\cdot\mid x)
+\right)
+\right]
+$$
+
+where:
+
+- $x$ is the task prompt, possibly including an image.
+- $y$ is the model-generated response sequence.
+- $\pi_\theta$ is the trainable policy.
+- $r_\phi$ is the learned reward score.
+- $\pi_{\mathrm{ref}}$ is the frozen reference policy.
+- $\beta>0$ controls how strongly we penalize deviation.
+- The KL term measures policy distribution shift, not supervised token error.
+
+Actual RLHF implementations differ in reward normalization, token-level penalties, value estimation and policy optimization details.
+
+### Qwen Project Application
+
+For the strict Little Content labeler, the supervised ground-truth labels already describe the desired decisions. We should **not** introduce a reward-model-and-PPO loop without evidence that classification metrics need a preference objective.
+
+RLHF would be more justifiable if our system were redesigned to produce long, qualitative visual assessments where human reviewers could consistently rank two reasonable explanations.
+
+### Design Decision — Q6
+
+Keep RLHF as an **understood alternative**, not part of the proposed initial classification pipeline. Any future preference-learning experiment must specify what behavior cannot be captured adequately by supervised labels.
+
+### Project Build Record Update — Q6
+
+| Element | State | Type |
+|---|---|---|
+| Classical RLHF workflow | SFT → reward model → policy optimization | Study Concept |
+| Reference model | Frozen baseline if RLHF is used | Study Concept |
+| RLHF added to Little Content baseline | No | Design Decision |
+
+---
+
+### Story Bridge 7 — If We Maximize Reward, Why Not Let the Policy Change as Much as It Wants?
+
+Suppose the reward model occasionally gives high scores to overly elaborate but misleading answers. A policy that aggressively maximizes this reward could move away from the broadly useful behavior learned in pretraining and SFT.
+
+We need a way to control that change.
+
+## Question 7 — Why Do RLHF Methods Use KL Regularization?
+
+### Simple intuition
+
+**KL regularization discourages the model from changing its response distribution too far away from a trusted starting policy.**
+
+It is like saying: "Improve the behavior according to our reward, but do not abandon everything the initial model already knew."
+
+This is not a perfect safety mechanism and cannot fix a fundamentally broken reward function. It is a way to control the size of policy changes.
+
+### What KL divergence measures
+
+For two distributions over possible responses:
+
+$$
+D_{\mathrm{KL}}(P\|Q)
+=
+\sum_y P(y)\log\frac{P(y)}{Q(y)}
+$$
+
+For language models, the distributions are conditioned on a prompt $x$, and responses $y$ are generally full token sequences.
+
+KL is:
+
+- Nonnegative when the distributions are well-defined.
+- Zero when they match almost everywhere.
+- **Not symmetric** in general: $D_{\mathrm{KL}}(P\|Q)$ need not equal $D_{\mathrm{KL}}(Q\|P)$.
+- A measure of distribution mismatch, not the percentage of wrong answers.
+
+### Numerical example with two response choices
+
+Imagine the reference model gives two candidate responses equal probability:
+
+$$
+\pi_{\mathrm{ref}}=(0.5,0.5)
+$$
+
+The updated policy strongly favors the first:
+
+$$
+\pi_\theta=(0.9,0.1)
+$$
+
+Then:
+
+$$
+D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}})
+=
+0.9\ln\frac{0.9}{0.5}
++
+0.1\ln\frac{0.1}{0.5}
+$$
+
+$$
+\approx0.9(0.5878)+0.1(-1.6094)
+\approx0.3681
+$$
+
+The policy has changed quite substantially. If both distributions were $(0.5,0.5)$, the KL value would be zero.
+
+### Why beta matters
+
+An idealized objective:
+
+$$
+J(\theta)
+=
+\mathbb E_{\pi_\theta}[r(x,y)]
+-
+\beta D_{\mathrm{KL}}(\pi_\theta\|\pi_{\mathrm{ref}})
+$$
+
+For larger $\beta$, deviations are penalized more strongly. For smaller $\beta$, the optimizer is freer to follow the reward model.
+
+**Important nuance:** KL can be formulated with different directions, sampled estimators or token-wise approximations. State the convention when discussing a specific implementation.
+
+### Token-level connection
+
+For an autoregressive response:
+
+$$
+\log\pi_\theta(y\mid x)
+=
+\sum_{t=1}^{T}
+\log\pi_\theta(y_t\mid x,y_{<t})
+$$
+
+A trajectory-level log-ratio relative to the reference can be written:
+
+$$
+\log\frac{\pi_\theta(y\mid x)}{\pi_{\mathrm{ref}}(y\mid x)}
+=
+\sum_{t=1}^{T}
+\log\frac{
+\pi_\theta(y_t\mid x,y_{<t})
+}{
+\pi_{\mathrm{ref}}(y_t\mid x,y_{<t})
+}
+$$
+
+This identity helps explain sampled reference penalties. A single sampled log-ratio is **not itself an exact KL divergence**; its expectation under the appropriate policy gives a KL-related quantity.
+
+### Qwen Project Application
+
+If a hypothetical preference optimizer encouraged verbose explanations, a reference penalty could limit drastic changes. But it would not guarantee that the explanation is grounded in the screenshot or that output remains a valid binary label.
+
+### Design Decision — Q7
+
+If preference optimization is ever used, measure both reward/preference improvement **and policy drift**. Treat beta and KL targets as experiment parameters requiring validation.
+
+### Project Build Record Update — Q7
+
+| Element | State | Type |
+|---|---|---|
+| KL regularization | Constrains deviation from reference | Study Concept |
+| KL strength $\beta$ | Not chosen | Open Question |
+| Binary classifier preference training | Still unjustified | Design Decision |
+
+---
+
+### Story Bridge 8 — We Have a Reward and a Penalty, but How Can We Update a Model That Generates Discrete Tokens?
+
+Text generation involves discrete token choices. We cannot simply differentiate through the sampled token ID as if it were a continuous number. Reinforcement-learning algorithms use probability-based gradients to improve actions whose outcomes are comparatively rewarding.
+
+A classical choice in RLHF is PPO.
+
+## Question 8 — How Does PPO-Based RLHF Work for a Language Model?
+
+### First intuition
+
+In PPO-based RLHF, **the policy generates text, receives a reward, and adjusts token probabilities in a controlled way**.
+
+PPO stands for **Proximal Policy Optimization**. Its clipping mechanism discourages overly large policy changes within an update.
+
+### Translate reinforcement-learning words into LLM terms
+
+| RL term | LLM meaning |
+|---|---|
+| State | Prompt plus generated token prefix |
+| Action | Next generated token |
+| Policy | Distribution of next tokens from the language model |
+| Episode / trajectory | Entire generated response |
+| Reward | Score of a response, potentially with penalties |
+| Value function / critic | Prediction of expected future reward from a state |
+| Advantage | How much better or worse an action's outcome was than expected |
+
+The reward may arrive primarily at the end of the response, whereas actions are individual tokens.
+
+### Why we need an advantage estimate
+
+A raw reward of 3 is hard to interpret without knowing whether 3 is typical for that prompt and model.
+
+A simplified advantage estimate is:
+
+$$
+A_t=G_t-V(s_t)
+$$
+
+where:
+
+- $G_t$ is a return estimate from position $t$.
+- $V(s_t)$ is predicted expected return from the current state.
+- $A_t>0$ suggests the observed outcome was better than predicted.
+- $A_t<0$ suggests the outcome was worse than predicted.
+
+Production PPO pipelines may use generalized advantage estimation (GAE), multiple value losses, reward normalization and extra details not needed to understand this core mechanism.
+
+### PPO clipping: the key mathematical idea
+
+Let $\pi_{\mathrm{old}}$ be the policy used to generate the training rollout. Define a probability ratio:
+
+$$
+\rho_t(\theta)
+=
+\frac{
+\pi_\theta(a_t\mid s_t)
+}{
+\pi_{\mathrm{old}}(a_t\mid s_t)
+}
+$$
+
+The simplified PPO clipped objective maximizes:
+
+$$
+L_{\mathrm{clip}}(\theta)
+=
+\mathbb E_t
+\left[
+\min\left(
+\rho_t A_t,\;
+\operatorname{clip}(\rho_t,1-\epsilon,1+\epsilon)A_t
+\right)
+\right]
+$$
+
+Here $\epsilon$ defines a trust region **surrogate clipping interval**, not a strict guarantee that the entire model distribution cannot change.
+
+For example, if $\epsilon=0.2$ and $A_t=1$:
+
+- Changing the action probability ratio from $1.0$ to $1.1$ improves the surrogate.
+- Raising it to $1.5$ does not add further gain in the clipped branch beyond $1.2$ for that positive advantage.
+
+A separate reference-policy KL term may also be present. **The PPO old policy is not necessarily the same model as the frozen KL reference policy.**
+
+### A simplified iteration
+
+~~~text
+Current policy generates response
+          ↓
+Reward model scores response
+          ↓
+Reference penalty and other task rewards
+          ↓
+Value model estimates expected return
+          ↓
+Calculate advantages for generated tokens
+          ↓
+PPO clipped policy update + value update
+          ↓
+Generate fresh responses and repeat
+~~~
+
+### Why this is expensive
+
+Compared with offline SFT:
+
+- We generate fresh responses while training.
+- We may maintain policy, old-policy snapshots, a reference model, a reward model and a critic.
+- We store rollouts and log probabilities.
+- Optimization and hyperparameter interactions are more complex.
+
+Implementations can share weights or use optimized placements, so not every model requires a fully independent copy in accelerator memory.
+
+### Qwen Project Application
+
+If the system only outputs one of two class labels, a full rollout/critic/PPO pipeline is generally far more complex than ordinary supervised learning and should be justified by a real unmet requirement, not included by default.
+
+### Design Decision — Q8
+
+PPO-based RLHF is **not** part of the current Qwen classification proposal. Know its policy-ratio, advantage and clipped-objective mechanics for general LLM alignment design.
+
+### Project Build Record Update — Q8
+
+| Element | State | Type |
+|---|---|---|
+| PPO old-policy ratio | Controls surrogate optimization update | Study Concept |
+| Critic/value estimator | Common component in PPO RLHF | Study Concept |
+| PPO applied to Little Content labels | Not proposed | Design Decision |
+
+---
+
+### Story Bridge 9 — A Better Reward Number May Still Mean a Worse Assistant
+
+Suppose a reward model gives high scores to confident answers. A policy may learn to sound confident even when the screenshot evidence does not support its claims. Training can increase the reward metric while human judgments of actual quality deteriorate.
+
+This is called reward hacking or reward overoptimization.
+
+## Question 9 — What Are Reward Hacking, Reward Overoptimization and Common RLHF Failures?
+
+### Simple intuition
+
+**Reward hacking occurs when a model discovers behavior that earns a high score from the reward system without fulfilling the underlying goal.**
+
+A reward is a measured approximation of what people want. Optimizing the approximation too aggressively can expose its flaws.
+
+### A concrete example
+
+Suppose the true goal is **accurate, concise image-grounded explanations**.
+
+But the reward model has learned to associate longer, confidently worded answers with good responses.
+
+Then training might shift toward:
+
+~~~text
+High reward-model score:
+"Clearly, this screenshot definitely violates the policy because ..."
+[long persuasive explanation with invented details]
+
+Actual problem:
+The screenshot contains a useful main answer block that the explanation ignored.
+~~~
+
+Reward-score improvement would not be proof of factual or visual correctness.
+
+### A conceptual equation
+
+Let $U(x,y)$ denote true task utility, which may be difficult to observe, and $r_\phi(x,y)$ the learned reward proxy.
+
+Generally:
+
+$$
+r_\phi(x,y)\neq U(x,y)
+$$
+
+The policy is optimized according to the proxy:
+
+$$
+\max_\theta\mathbb E_{\pi_\theta}[r_\phi(x,y)]
+$$
+
+A rise in this expectation **does not logically imply** a rise in:
+
+$$
+\mathbb E_{\pi_\theta}[U(x,y)]
+$$
+
+### Typical failure categories
+
+| Failure | Description | Possible check |
+|---|---|---|
+| Reward hacking | Exploits scorer's weaknesses | Independent human review and task metrics |
+| Overoptimization | Reward rises while true quality falls | Compare reward curves with held-out judgments |
+| Distribution shift | Policy generates responses unlike reward-model training examples | Evaluate out-of-distribution responses |
+| Length/style bias | Scorer prefers wordiness or polish | Length-controlled comparisons and factuality checks |
+| Annotator disagreement | Preference criterion poorly defined | Multi-rater audits and policy refinement |
+| Mode collapse / reduced diversity | Policy concentrates on narrow response types | Response diversity and utility analysis |
+| Excessive KL penalty | Policy cannot improve much | Reward/quality versus policy-drift trade-off |
+
+### Why KL is not enough
+
+KL penalizes large distribution shifts, but a model can still move toward local behaviors that exploit a flawed reward predictor. Conversely, overly strong KL may restrict improvements.
+
+Therefore alignment requires **an independent evaluation of the actual task**, not only reward scores and KL statistics.
+
+### Qwen Project Application
+
+If our service is intended to flag Little Content pages, a model that generates convincing explanations for incorrect class labels is worse, not better. For the binary task, track true-label classification behavior and false-positive cost. For an optional explanation feature, evaluate visual grounding separately from prose quality.
+
+### Design Decision — Q9
+
+For any preference experiment, monitor independent human/task quality, held-out preference judgments and failure slices alongside reward metrics. Do not use reward-model scores as the sole success criterion.
+
+### Project Build Record Update — Q9
+
+| Element | State | Type |
+|---|---|---|
+| Reward hacking | Risk of optimizing proxy rather than true goal | Study Concept |
+| Independent validation | Required for claims of improvement | Design Decision |
+| Grounding of explanations | Would need explicit tests if feature introduced | Open Question |
+
+---
+
+### Story Bridge 10 — RLHF Works, but Must We Always Train a Reward Model and Run an RL Loop?
+
+We have learned a three-stage RLHF pipeline: supervised model, pairwise-trained reward scorer and a policy optimizer such as PPO. It has understandable logic, but it is computationally and operationally complex.
+
+A natural question follows: can we learn directly from the preferred and rejected responses, without separately training a scalar reward model and running online reinforcement learning?
+
+That is the motivation behind Direct Preference Optimization.
+
+## Question 10 — What Is DPO, and Why Can It Avoid an Explicit Reward Model?
+
+### Simple intuition
+
+**DPO (Direct Preference Optimization) trains the response-generating model directly from chosen/rejected response pairs.**
+
+It compares how likely the policy finds the preferred and rejected responses, while also using a **frozen reference model** to keep the comparison anchored to the starting policy.
+
+Standard DPO does not require an explicitly trained reward network, a separate critic or a PPO rollout loop.
+
+### The training record is familiar
+
+~~~text
+Prompt / image x
+Chosen response y_w
+Rejected response y_l
+~~~
+
+The model computes log probabilities for both complete responses under:
+
+- The trainable policy $\pi_\theta$.
+- The fixed reference policy $\pi_{\mathrm{ref}}$.
+
+Teacher forcing can compute sequence log probabilities for the two known responses. This is an **offline preference loss**, although other online DPO variants exist.
+
+### Important limitation of the slogan "DPO removes the reward model"
+
+DPO does **not** make preferences disappear. Its derivation uses an implicit connection between a KL-regularized reward objective and policy log-probability ratios.
+
+We no longer need to separately train and query a reward network in the standard DPO update. But the mathematical interpretation relies on assumptions about preferences and the underlying optimization objective.
+
+### Derive the policy–reward relationship carefully
+
+Consider a fixed prompt $x$ and a reference policy $\pi_{\mathrm{ref}}(y\mid x)$. Under a KL-regularized reward objective, the optimal response distribution has a Boltzmann-like form:
+
+$$
+\pi^*(y\mid x)
+=
+\frac{1}{Z(x)}
+\pi_{\mathrm{ref}}(y\mid x)
+\exp\left(\frac{r(x,y)}{\beta}\right)
+$$
+
+where:
+
+- $r(x,y)$ is a theoretical reward function.
+- $\beta>0$ is the KL regularization coefficient in this convention.
+- $Z(x)$ is a prompt-dependent normalizing constant.
+
+Take logarithms:
+
+$$
+\log\pi^*(y\mid x)
+=
+\log\pi_{\mathrm{ref}}(y\mid x)
++
+\frac{r(x,y)}{\beta}
+-
+\log Z(x)
+$$
+
+Rearrange:
+
+$$
+r(x,y)
+=
+\beta
+\log\frac{\pi^*(y\mid x)}{\pi_{\mathrm{ref}}(y\mid x)}
++
+\beta\log Z(x)
+$$
+
+For a preference pair with the same prompt, subtract rewards:
+
+$$
+r(x,y_w)-r(x,y_l)
+=
+\beta\left[
+\log\frac{\pi^*(y_w\mid x)}{\pi_{\mathrm{ref}}(y_w\mid x)}
+-
+\log\frac{\pi^*(y_l\mid x)}{\pi_{\mathrm{ref}}(y_l\mid x)}
+\right]
+$$
+
+The normalization $\log Z(x)$ cancels because both responses belong to the **same prompt**.
+
+Now substitute this implicit reward difference into the Bradley–Terry preference likelihood from Question 5. Replace the unknown optimum $\pi^*$ with the trainable policy $\pi_\theta$.
+
+This gives the DPO loss:
+
+$$
+\mathcal L_{\mathrm{DPO}}
+=
+-\mathbb E_{(x,y_w,y_l)}
+\log\sigma\left(
+\beta\left[
+\log\frac{\pi_\theta(y_w\mid x)}{\pi_{\mathrm{ref}}(y_w\mid x)}
+-
+\log\frac{\pi_\theta(y_l\mid x)}{\pi_{\mathrm{ref}}(y_l\mid x)}
+\right]
+\right)
+$$
+
+This is the central mathematical result.
+
+### Why this is useful
+
+- Both responses are already present, so we can teacher-force their log probabilities.
+- We compare how the policy favors each response **relative to its reference**.
+- A normal differentiable loss updates the policy parameters or LoRA adapters.
+- We avoid a separately trained reward model and online PPO rollouts in standard offline DPO.
+
+### What the derivation does not guarantee
+
+The optimal-policy formula is derived under particular idealized assumptions, including the form of the KL-regularized reward objective and policy support. Finite datasets, inconsistent preferences, reference mismatch, noisy labels and model capacity limits can affect practical outcomes. DPO is not guaranteed to optimize any arbitrary real-world notion of human preference perfectly.
+
+### Qwen Project Application
+
+If we collect high-quality **pairs of alternative written explanations for the same screenshot**, DPO could theoretically fine-tune their relative preference without building a separate reward model. But this does not demonstrate that DPO is beneficial for predicting one of two known class labels.
+
+### Design Decision — Q10
+
+Understand DPO as a potential preference-learning tool. Keep canonical-label SFT as the initial Little Content classification training path. Any DPO extension must define its preference dataset and success criteria first.
+
+### Project Build Record Update — Q10
+
+| Element | State | Type |
+|---|---|---|
+| DPO training data | Prompt, chosen response, rejected response | Study Concept |
+| DPO trainable policy | Updated from pairwise loss | Study Concept |
+| Frozen reference policy | Needed in standard DPO loss | Study Concept |
+| DPO for binary classifier | Not proposed without incremental-value evidence | Design Decision |
+
+---
+
