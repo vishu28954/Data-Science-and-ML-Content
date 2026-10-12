@@ -540,22 +540,7 @@ The human comparison work may occur **before** the RL optimization phase. We don
 A useful conceptual KL-regularized RLHF objective is:
 
 $$
-\max_\theta
-\mathbb E_{x\sim\mathcal D,\;y\sim\pi_\theta(\cdot\mid x)}
-\left[
-r_\phi(x,y)
-\right]
--
-\beta
-\mathbb E_{x\sim\mathcal D}
-\left[
-D_{\mathrm{KL}}
-\left(
-\pi_\theta(\cdot\mid x)
-\;\|\;
-\pi_{\mathrm{ref}}(\cdot\mid x)
-\right)
-\right]
+\max_\theta \mathbb{E}_{x \sim \mathcal{D}, \; y \sim \pi_\theta(\cdot \mid x)} \left[ r_\phi(x,y) \right] - \beta \mathbb{E}_{x \sim \mathcal{D}} \left[ D_{\mathrm{KL}} \left( \pi_\theta(\cdot \mid x) \parallel \pi_{\mathrm{ref}}(\cdot \mid x) \right) \right]
 $$
 
 where:
