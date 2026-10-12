@@ -889,31 +889,221 @@ A classical choice in RLHF is PPO.
 
 ## Question 8 — How Does PPO-Based RLHF Work for a Language Model?
 
-### First intuition
+The difficulty with PPO is that we can accidentally start discussing advantage, KL divergence and clipping before understanding why PPO was introduced at all.
 
-In PPO-based RLHF, **the policy generates text, receives a reward, and adjusts token probabilities in a controlled way**.
+**First question: What problem are we trying to solve that ordinary SFT does not directly solve?**
 
-PPO stands for **Proximal Policy Optimization**. Its clipping mechanism discourages overly large policy changes within an update.
+**Second question: Where does PPO enter the LLM post-training pipeline?**
 
-### Translate reinforcement-learning words into LLM terms
+Only after answering those questions will we discuss token probabilities, advantage estimation and the clipping formula.
 
-| RL term | LLM meaning |
+---
+
+### Part A — What Problem Are We Trying to Solve?
+
+#### 1. Start with the LLM training pipeline
+
+Think about how a general-purpose language model becomes an instruction-following assistant.
+
+~~~text
+STAGE 1 — PRETRAINING
+Learn language, patterns, facts and general capabilities
+from large-scale data through next-token prediction.
+              ↓
+STAGE 2 — SUPERVISED FINE-TUNING (SFT)
+Learn to follow instructions by imitating desirable target responses.
+Training signal: target-response cross-entropy.
+              ↓
+STAGE 3 — PREFERENCE ALIGNMENT (OPTIONAL)
+Improve behavior using human preferences or reward signals.
+              |
+              +--> Classical RLHF: reward model + RL optimizer such as PPO
+              |
+              +--> DPO: direct learning from chosen/rejected pairs
+~~~
+
+**PPO belongs inside the RLHF branch of optional post-training.** It is not part of the original next-token pretraining stage, and it is not required after every SFT run.
+
+#### 2. What can SFT already do?
+
+Suppose a user asks:
+
+> Explain gradient descent to someone who has never studied machine learning.
+
+We provide one high-quality demonstration:
+
+> Gradient descent is a method for reducing errors in a model. It repeatedly adjusts the model's parameters in the direction that lowers the error.
+
+SFT increases the probability of the demonstrated response given the prompt:
+
+$$
+\mathcal L_{\mathrm{SFT}}
+=
+-\log\pi_\theta(y_{\mathrm{target}}\mid x)
+$$
+
+Here, $x$ is the user prompt, $y_{\mathrm{target}}$ is the desired response, and $\pi_\theta$ is the language model.
+
+This works well for teaching instruction-following behavior.
+
+#### 3. What problem can remain after SFT?
+
+Imagine the model produces three possible explanations of gradient descent.
+
+**Response A:**
+
+> Gradient descent is an optimization algorithm that updates parameters using the negative gradient of a loss function.
+
+**Response B:**
+
+> Imagine walking downhill while blindfolded. At each step, you feel which direction slopes downward and move that way. Gradient descent works similarly to reduce a model's error.
+
+**Response C:**
+
+> Gradient descent is a machine-learning technique used for optimization.
+
+All three relate to gradient descent. For this particular *beginner-friendly* prompt, many people might prefer B because it uses an intuitive analogy.
+
+SFT learns from demonstrated responses, but a demonstration does not directly encode a ranking of all plausible answers the model could generate.
+
+Human comparisons introduce another kind of supervision:
+
+$$
+B\succ A,\qquad B\succ C
+$$
+
+This means that, for this prompt, B is preferred over A and C.
+
+**The new goal is to improve the model's tendency to generate preferred responses, rather than only imitating one fixed demonstration.**
+
+SFT can still produce good answers. The point is not that SFT has failed; it is that **relative human preferences provide an additional training signal** for tasks with several acceptable responses.
+
+---
+
+### Part B — Where Does PPO Enter the Pipeline?
+
+#### 4. Understand RLHF before PPO
+
+RLHF stands for **Reinforcement Learning from Human Feedback**.
+
+One classical RLHF design follows this sequence:
+
+~~~text
+1. START WITH AN SFT-TRAINED LLM
+   The model already follows instructions and generates responses.
+                     ↓
+2. TRAIN A REWARD MODEL
+   Humans compare responses to the same prompt.
+   A learned scorer approximates those preferences.
+                     ↓
+3. OPTIMIZE THE GENERATING LLM USING REWARDS
+   Generate responses, evaluate them, and update the policy.
+                     ↓
+          PPO CAN BE USED HERE
+~~~
+
+A common misunderstanding is to treat "RLHF," "reward model" and "PPO" as three names for the same process. They are different.
+
+#### Reward model: the evaluator
+
+The reward model receives a prompt and generated response, then produces a score.
+
+For example:
+
+| Candidate response | Illustrative reward |
+|---|---:|
+| A | 5 |
+| B | 9 |
+| C | 3 |
+
+The reward model might score B highest because it best satisfies the beginner-friendly instruction.
+
+These example reward values are not real measurements.
+
+**The reward model evaluates the answer. It does not automatically modify the generating language model.**
+
+#### PPO: an optimization algorithm
+
+PPO, or **Proximal Policy Optimization**, is a reinforcement-learning algorithm that updates the generating policy using reward-related feedback.
+
+In PPO-based RLHF, the policy samples responses, the reward system evaluates those responses, and PPO adjusts the policy parameters.
+
+The algorithm is designed to discourage excessively large updates during an optimization step.
+
+| Component | Main responsibility |
 |---|---|
-| State | Prompt plus generated token prefix |
-| Action | Next generated token |
-| Policy | Distribution of next tokens from the language model |
-| Episode / trajectory | Entire generated response |
-| Reward | Score of a response, potentially with penalties |
-| Value function / critic | Prediction of expected future reward from a state |
-| Advantage | How much better or worse an action's outcome was than expected |
+| SFT | Give the model useful instruction-following behavior |
+| Human comparisons | Identify preferred responses |
+| Reward model | Turn preference data into response scores |
+| PPO | Use reward-related feedback to improve the generating policy |
 
-The reward may arrive primarily at the end of the response, whereas actions are individual tokens.
+**The critical distinction:** The reward system supplies the learning signal. PPO is one algorithm that uses it to update the model.
 
-### Why we need an advantage estimate
+---
 
-A raw reward of 3 is hard to interpret without knowing whether 3 is typical for that prompt and model.
+### Part C — What Exactly Does PPO Optimize?
 
-A simplified advantage estimate is:
+#### 5. What is a policy in an LLM?
+
+PPO comes from reinforcement learning, where an agent selects actions from states.
+
+For an autoregressive language model:
+
+| Reinforcement-learning term | LLM interpretation |
+|---|---|
+| Agent | The language model |
+| State $s_t$ | Prompt plus previously generated tokens |
+| Action $a_t$ | Next token selected |
+| Policy $\pi_\theta$ | Probability distribution over possible next tokens |
+| Trajectory | Full generated response |
+| Reward | Evaluation of the generated response, sometimes with penalties |
+
+Suppose the model is generating:
+
+> Gradient descent ...
+
+It might assign the next token the following probabilities:
+
+| Next token | Probability |
+|---|---:|
+| reduces | 0.50 |
+| increases | 0.20 |
+| follows | 0.15 |
+| Other tokens | 0.15 |
+
+The probability of sampling the token "reduces" is written:
+
+$$
+\pi_\theta(\mathrm{reduces}\mid s_t)=0.50
+$$
+
+More generally:
+
+$$
+\pi_\theta(a_t\mid s_t)
+$$
+
+This means:
+
+> Given the current prompt and generated prefix, how likely is the model to select token $a_t$?
+
+**Fine-tuning a policy means changing its parameters so that some future token sequences become more likely and others less likely.**
+
+The sampled token itself is discrete, but its probability is a differentiable function of the network parameters. Policy-gradient methods use that probability to train the network.
+
+#### 6. How does PPO learn whether a generated response was better than expected?
+
+Suppose the policy generates:
+
+> Gradient descent reduces the model's error.
+
+The reward model gives it an illustrative score of 8.
+
+Is 8 a surprisingly good result? That depends on what we expected.
+
+PPO commonly uses a **critic** or **value model** to estimate the expected future return from a state.
+
+A simplified advantage equation is:
 
 $$
 A_t=G_t-V(s_t)
@@ -921,28 +1111,112 @@ $$
 
 where:
 
-- $G_t$ is a return estimate from position $t$.
-- $V(s_t)$ is predicted expected return from the current state.
-- $A_t>0$ suggests the observed outcome was better than predicted.
-- $A_t<0$ suggests the outcome was worse than predicted.
+- $G_t$ is the estimated return from time step $t$.
+- $V(s_t)$ is the value model's predicted expected return at that state.
+- $A_t$ measures whether the observed/estimated return is above or below expectation.
 
-Production PPO pipelines may use generalized advantage estimation (GAE), multiple value losses, reward normalization and extra details not needed to understand this core mechanism.
+Suppose:
 
-### PPO clipping: the key mathematical idea
+$$
+G_t=8,\qquad V(s_t)=5
+$$
 
-Let $\pi_{\mathrm{old}}$ be the policy used to generate the training rollout. Define a probability ratio:
+Then:
+
+$$
+A_t=8-5=+3
+$$
+
+The outcome is **better than expected**. A policy-gradient update tends to encourage the sampled action.
+
+But if:
+
+$$
+G_t=3,\qquad V(s_t)=5
+$$
+
+then:
+
+$$
+A_t=3-5=-2
+$$
+
+The outcome is **worse than expected**, so the update tends to discourage the sampled action.
+
+| Advantage | Interpretation | Broad policy-update direction |
+|---|---|---|
+| Positive | Outcome better than expected | Encourage sampled action |
+| Negative | Outcome worse than expected | Discourage sampled action |
+
+**Important subtlety:** A response-level reward of 8 does not mean every generated token has an individual reward of 8. PPO-based LLM training constructs token-position returns and advantages, potentially using KL penalties, reward shaping and generalized advantage estimation (GAE).
+
+The reward model and critic serve different purposes:
+
+- **Reward model:** Judge how good a completed response is under learned preferences.
+- **Critic:** Estimate how much future return can be expected from the current generation state.
+
+#### 7. Why was PPO designed to control updates?
+
+Imagine the selected token "reduces" originally had probability:
+
+$$
+\pi_{\mathrm{old}}(\mathrm{reduces}\mid s_t)=0.50
+$$
+
+The sampled action receives a positive advantage, so we want to increase its probability.
+
+After updating, possible outcomes include:
+
+| New probability | How large is the increase? |
+|---|---|
+| 0.55 | Small |
+| 0.70 | Larger |
+| 0.95 | Extremely large |
+
+Large probability changes driven by a small set of sampled responses can destabilize training.
+
+**PPO discourages overly aggressive updates by using a clipped probability-ratio objective.**
+
+The probability ratio is:
 
 $$
 \rho_t(\theta)
 =
-\frac{
-\pi_\theta(a_t\mid s_t)
-}{
-\pi_{\mathrm{old}}(a_t\mid s_t)
-}
+\frac{\pi_\theta(a_t\mid s_t)}
+{\pi_{\mathrm{old}}(a_t\mid s_t)}
 $$
 
-The simplified PPO clipped objective maximizes:
+The denominator is the token probability assigned by the policy that generated the training response.
+
+The numerator is the token probability under the policy currently being updated.
+
+For example:
+
+$$
+\rho_t
+=
+\frac{0.55}{0.50}
+=
+1.1
+$$
+
+The sampled token is now 10% more probable.
+
+But:
+
+$$
+\rho_t
+=
+\frac{0.95}{0.50}
+=
+1.9
+$$
+
+Its probability increased by 90% relative to the old policy.
+
+PPO uses **clipping** to limit the benefit that the training objective assigns to some excessively large probability-ratio changes.
+
+The central clipped surrogate objective is:
 
 $$
 L_{\mathrm{clip}}(\theta)
@@ -956,58 +1230,131 @@ L_{\mathrm{clip}}(\theta)
 \right]
 $$
 
-Here $\epsilon$ defines a trust region **surrogate clipping interval**, not a strict guarantee that the entire model distribution cannot change.
+Here $\epsilon$ is the clipping parameter.
 
-For example, if $\epsilon=0.2$ and $A_t=1$:
+For example, with:
 
-- Changing the action probability ratio from $1.0$ to $1.1$ improves the surrogate.
-- Raising it to $1.5$ does not add further gain in the clipped branch beyond $1.2$ for that positive advantage.
+$$
+\epsilon=0.2
+$$
 
-A separate reference-policy KL term may also be present. **The PPO old policy is not necessarily the same model as the frozen KL reference policy.**
+the clipping interval is:
 
-### A simplified iteration
+$$
+[1-\epsilon,1+\epsilon]=[0.8,1.2]
+$$
+
+For a **positive advantage**, the clipped objective stops giving further benefit when the sampled token's ratio rises beyond 1.2.
+
+For a **negative advantage**, the clipped objective stops rewarding further probability decreases once the ratio falls below 0.8.
+
+**Clipping does not guarantee that model probabilities remain inside that interval.** It controls the optimization incentive in the surrogate objective, not the set of permissible probability values.
+
+### PPO Old Policy Versus Frozen Reference Policy
+
+Part 4, Question 7 introduced KL regularization. That reference model is different from the PPO old-policy snapshot.
+
+- The **old policy** is the policy used to collect a batch of generated responses. Its probabilities are stored for PPO-ratio calculations.
+- The **reference policy** is generally a frozen baseline, often copied from the SFT model, that helps penalize drift across RLHF training.
+
+PPO clipping moderates policy updates relative to the rollout policy. KL regularization discourages policy drift relative to the chosen reference model.
+
+These mechanisms are complementary, not identical.
+
+---
+
+### Part D — How Do All the Pieces Fit Together?
+
+One simplified PPO-based RLHF iteration looks like this:
 
 ~~~text
-Current policy generates response
-          ↓
-Reward model scores response
-          ↓
-Reference penalty and other task rewards
-          ↓
-Value model estimates expected return
-          ↓
-Calculate advantages for generated tokens
-          ↓
-PPO clipped policy update + value update
-          ↓
-Generate fresh responses and repeat
+SFT-TRAINED POLICY
+The language model already produces meaningful answers.
+            ↓
+GENERATE RESPONSE
+Sample tokens; record old-policy log probabilities.
+            ↓
+REWARD MODEL
+Score the generated response using learned preference quality.
+            ↓
+REFERENCE MODEL / KL PENALTY
+Discourage excessive distribution drift.
+            ↓
+VALUE MODEL (CRITIC)
+Estimate expected return; calculate token-position advantages.
+            ↓
+PPO CLIPPED UPDATE
+Use advantages and probability ratios to update the policy.
+Also train the critic to estimate returns.
+            ↓
+GENERATE FRESH RESPONSES
+Repeat with the updated policy and independently evaluate quality.
 ~~~
 
-### Why this is expensive
+This is why PPO-based RLHF is more computationally complicated than ordinary SFT. It often involves repeated response generation, reward-model evaluation, reference-policy calculations, critic learning, rollout storage and iterative policy updates.
 
-Compared with offline SFT:
+The exact architecture and training loop depend on the implementation; some models or weights may be shared rather than held as independent full copies.
 
-- We generate fresh responses while training.
-- We may maintain policy, old-policy snapshots, a reference model, a reward model and a critic.
-- We store rollouts and log probabilities.
-- Optimization and hyperparameter interactions are more complex.
+---
 
-Implementations can share weights or use optimized placements, so not every model requires a fully independent copy in accelerator memory.
+### Part E — Algorithmic Trade-offs
+
+We can now compare PPO with other post-training methods.
+
+| Method | Training signal | Most natural use |
+|---|---|---|
+| SFT | Known desirable target responses | Teach behavior by directly imitating demonstrations |
+| DPO | Chosen and rejected responses for the same prompt | Learn from preference comparisons without a separate PPO rollout loop in standard offline DPO |
+| PPO-based RLHF | Reward signals assigned to policy-generated responses | Optimize the generating policy using reward-guided RL updates |
+
+PPO offers useful capabilities when generated responses can be evaluated using a meaningful reward, including the possibility of generating fresh training responses as the policy changes.
+
+But it also requires more complicated training infrastructure and may suffer from reward hacking or optimization instability.
 
 ### Qwen Project Application
 
-If the system only outputs one of two class labels, a full rollout/critic/PPO pipeline is generally far more complex than ordinary supervised learning and should be justified by a real unmet requirement, not included by default.
+For our theoretical Qwen Little Content classifier, the desired output is a known binary label for a screenshot.
+
+A direct supervised classification/SFT objective is therefore a more natural starting point than PPO.
+
+PPO-based RLHF could become relevant if the product later required rich, preference-sensitive explanations or another outcome-based task whose optimization cannot be adequately handled by supervised target labels.
+
+**It would still need to demonstrate a measurable benefit over simpler SFT or DPO baselines.**
+
+---
+
+### Final Mental Model for Question 8
+
+| Question | Answer |
+|---|---|
+| What are we trying to solve? | Improve the quality of generated responses with preference-derived feedback beyond simply imitating demonstrations |
+| What is RLHF? | A broader training workflow that uses human feedback, often through a learned reward model |
+| What is PPO? | A reinforcement-learning optimization algorithm that uses advantages and a clipped probability-ratio objective to update a policy |
+| Where does PPO enter fine-tuning? | In an optional, post-SFT, reward-guided optimization stage |
+
+**Most important distinction:** PPO does not decide whether a response is good. The reward system provides the evaluation; PPO uses reward-related signals to adjust the model's future response probabilities.
+
+### Concept Check — Why Not Simply Use SFT on the Best Response?
+
+If the reward model tells us Response B is better than Response A, why not simply add B as an SFT target?
+
+That is a valid possible strategy. In fact, gathering preferred responses and fine-tuning on them can be a strong baseline.
+
+The potential reason to use PPO is that it can **generate new responses as training progresses** and optimize reward-derived outcomes rather than only imitate a static list of preferred demonstrations. Whether that additional capability is worth its complexity is an empirical question—not a reason to assume PPO is always superior.
 
 ### Design Decision — Q8
 
-PPO-based RLHF is **not** part of the current Qwen classification proposal. Know its policy-ratio, advantage and clipped-objective mechanics for general LLM alignment design.
+PPO-based RLHF is **not** part of the current Qwen classification proposal. For general LLM alignment study, understand the complete progression: SFT → human preference data → reward model → rollout policy → advantage estimation → PPO clipped updates → held-out evaluation.
 
 ### Project Build Record Update — Q8
 
 | Element | State | Type |
 |---|---|---|
-| PPO old-policy ratio | Controls surrogate optimization update | Study Concept |
-| Critic/value estimator | Common component in PPO RLHF | Study Concept |
+| PPO position in pipeline | Optional reward-guided stage after basic supervised training | Study Concept |
+| Reward model versus PPO | Scores responses versus updates generating policy | Study Concept |
+| PPO old-policy ratio | Controls sampled-action surrogate update | Study Concept |
+| Critic/value estimator | Estimates future returns for advantage calculation | Study Concept |
+| Reference policy and KL | Distinct from rollout old policy; discourages long-run drift | Study Concept |
 | PPO applied to Little Content labels | Not proposed | Design Decision |
 
 ---
